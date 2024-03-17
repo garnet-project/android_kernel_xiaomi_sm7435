@@ -40,7 +40,7 @@
 
 #include "goodix_ts_core.h"
 
-#define GOODIX_DEFAULT_CFG_NAME "goodix_cfg_group_m16.cfg"
+#define GOODIX_DEFAULT_CFG_NAME "goodix_cfg_group.cfg"
 #define GOOIDX_INPUT_PHYS "goodix_ts/input0"
 #define PINCTRL_STATE_ACTIVE "pmx_ts_active"
 #define PINCTRL_STATE_SUSPEND "pmx_ts_suspend"

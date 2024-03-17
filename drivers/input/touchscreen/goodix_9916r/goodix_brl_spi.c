@@ -251,14 +251,6 @@ static int goodix_spi_probe(struct spi_device *spi)
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
 
-	/*按照MTK建议增加该部分代码以增加tsu(MOSI)时间 单位是sck 5M对应200ns*/
-	spi->cs_setup.value = 1;
-	spi->cs_setup.unit = 0;
-	spi->cs_hold.value = 1;
-	spi->cs_hold.unit = 0;
-	spi->cs_inactive.value = 1;
-	spi->cs_inactive.unit = 0;
-
 	ret = spi_setup(spi);
 	if (ret) {
 		ts_err("failed set spi mode, %d", ret);

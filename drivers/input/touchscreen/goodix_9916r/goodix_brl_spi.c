@@ -25,7 +25,7 @@
 #include <linux/of_gpio.h>
 #include <linux/err.h>
 #include "goodix_ts_core.h"
-#define TS_DRIVER_NAME "gtx888_spi"
+#define TS_DRIVER_NAME "gtx8_spi"
 
 #define SPI_TRANS_PREFIX_LEN 1
 #define REGISTER_WIDTH 4

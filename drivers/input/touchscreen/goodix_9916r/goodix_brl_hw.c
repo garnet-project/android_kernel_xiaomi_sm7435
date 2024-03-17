@@ -201,14 +201,14 @@ static int brl_power_on(struct goodix_ts_core *cd, bool on)
 			gpio_direction_output(avdd_gpio, 1);
 			usleep_range(15000, 15100);
 		}
-		/*
-		*ret = regulator_enable(cd->avdd);
-		*if (ret) {
-		*	regulator_disable(cd->iovdd);
-		*	ts_err("Failed to enable avdd:%d", ret);
-		*	return ret;
-		*}
-		*/
+
+		ret = regulator_enable(cd->avdd);
+		if (ret) {
+			regulator_disable(cd->iovdd);
+			ts_err("Failed to enable avdd:%d", ret);
+			return ret;
+		}
+
 		ts_info("regulator enable SUCCESS");
 		usleep_range(15000, 15100);
 		gpio_direction_output(reset_gpio, 1);

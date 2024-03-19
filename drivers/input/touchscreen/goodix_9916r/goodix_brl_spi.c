@@ -239,6 +239,7 @@ static int ts_check_panel(struct device_node *np)
 	}
 	return PTR_ERR(panel);
 }
+struct device_node *gf_spi_dp;
 
 static int goodix_spi_probe(struct spi_device *spi)
 {
@@ -297,6 +298,7 @@ static int goodix_spi_probe(struct spi_device *spi)
 		ts_err("failed register goodix platform device, %d", ret);
 		goto err_pdev;
 	}
+	gf_spi_dp = dp;
 	ts_info("spi probe out");
 	return 0;
 

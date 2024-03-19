@@ -25,6 +25,7 @@
 #include <linux/backlight.h>
 #include <drm/drm_panel.h>
 #include <linux/power_supply.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 
 /* #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 38) */
 #include <linux/input/mt.h>
@@ -65,6 +66,37 @@ static int goodix_send_ic_config(struct goodix_ts_core *cd, int type);
 static void goodix_set_gesture_work(struct work_struct *work);
 static struct proc_dir_entry *touch_debug;
 static int goodix_get_charging_status(void);
+
+struct drm_panel *active_panel;
+extern struct device_node *gf_spi_dp;
+
+static int goodix_ts_check_panel()
+{
+	int i;
+	int count;
+	struct device_node *node;
+	struct drm_panel *panel;
+
+	if (gf_spi_dp == NULL) {
+		ts_err("dp is null,failed to find active panel");
+		return -ENODEV;
+	}
+
+	count = of_count_phandle_with_args(gf_spi_dp, "panel", NULL);
+	if (count <= 0)
+		return -ENODEV;
+	for (i = 0; i < count; i++) {
+		node = of_parse_phandle(gf_spi_dp, "panel", i);
+		panel = of_drm_find_panel(node);
+		of_node_put(node);
+		if (!IS_ERR(panel)) {
+			active_panel = panel;
+			return 0;
+		}
+	}
+	return PTR_ERR(panel);
+}
+
 /*
 *只要每次亮屏上层下发set_mode_long_value 这个地方就可以去掉，先去掉
 *static bool brl_edge_normal_already = false;
@@ -2297,36 +2329,75 @@ static void goodix_ts_suspend_work(struct work_struct *work)
 	goodix_ts_suspend(core_data);
 }
 
-int goodix_drm_state_change_callback(struct notifier_block *self,
-				     unsigned long event, void *data)
+void goodix_drm_state_change_callback(enum panel_event_notifier_tag tag,
+				      struct panel_event_notification *event,
+				      void *data)
 {
-	struct goodix_ts_core *core_data =
-		container_of(self, struct goodix_ts_core, notifier);
-	struct mi_disp_notifier *evdata = data;
-	int blank;
+	struct goodix_ts_core *core_data = data;
 
-	if (evdata && evdata->data && core_data) {
-		blank = *(int *)(evdata->data);
-		ts_info("notifier tp event:%d, code:%d.", event, blank);
-		if (event == MI_DISP_DPMS_EARLY_EVENT &&
-		    (blank == MI_DISP_DPMS_POWERDOWN ||
-		     blank == MI_DISP_DPMS_LP1 || blank == MI_DISP_DPMS_LP2)) {
-			ts_info("touchpanel suspend by %s",
-				blank == MI_DISP_DPMS_POWERDOWN ? "blank" :
-								  "doze");
-			flush_workqueue(core_data->event_wq);
-			queue_work(core_data->event_wq,
-				   &core_data->suspend_work);
-		} else if (event == MI_DISP_DPMS_EVENT &&
-			   blank == MI_DISP_DPMS_ON) {
-			ts_info("touchpanel resume");
-			flush_workqueue(core_data->event_wq);
-			queue_work(core_data->event_wq,
-				   &core_data->resume_work);
-		}
+	if (event == NULL) {
+		ts_err("Invalid notification");
+		return;
 	}
 
-	return 0;
+	ts_info("Notification type:%d, early_trigger:%d", event->notif_type,
+		event->notif_data.early_trigger);
+	switch (event->notif_type) {
+	case 1:
+	case 3:
+		if (event->notif_data.early_trigger) {
+			return;
+		}
+		if (atomic_read(&core_data->suspended)) {
+			return;
+		}
+		ts_info("FB_BLANK %s",
+			event->notif_type == 3 ? "POWER DOWN" : "LP");
+		flush_workqueue(core_data->event_wq);
+		queue_work(core_data->event_wq, &core_data->suspend_work);
+		break;
+	case 2:
+		if (event->notif_data.early_trigger) {
+			return;
+		}
+		ts_info("FB_BLANK_UNBLANK");
+		flush_workqueue(core_data->event_wq);
+		queue_work(core_data->event_wq, &core_data->resume_work);
+		break;
+	case 4:
+		break;
+	default:
+		ts_err("%s: notification serviced :%d", __func__,
+		       event->notif_type);
+		break;
+	}
+}
+
+void goodix_register_panel_notifier_work(struct work_struct *work)
+{
+	static int check_count = 0;
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct goodix_ts_core *cd = container_of(dwork, struct goodix_ts_core,
+						 panel_notifier_register_work);
+	ts_info("%s enter", __func__);
+	goodix_ts_check_panel();
+
+	if (active_panel == NULL) {
+		ts_err("Failed to register panel notifier, try again");
+		if (check_count < 5) {
+			check_count++;
+			queue_delayed_work(system_wq, dwork, 0x4e2);
+			return;
+		}
+		ts_err("Failed to register panel notifier, not try");
+	} else {
+		cd->notifier_cookie = (void *)panel_event_notifier_register(
+			1, 0, active_panel, goodix_drm_state_change_callback,
+			cd);
+		if (cd->notifier_cookie == NULL) {
+			ts_err("Failed to register for panel events");
+		}
+	}
 }
 
 #ifdef CONFIG_FB
@@ -2334,31 +2405,33 @@ int goodix_drm_state_change_callback(struct notifier_block *self,
  * goodix_ts_fb_notifier_callback - Framebuffer notifier callback
  * Called by kernel during framebuffer blanck/unblank phrase
  *
- *int goodix_ts_fb_notifier_callback(struct notifier_block *self,
- *	unsigned long event, void *data)
- *{
- *	struct goodix_ts_core *core_data =
- *		container_of(self, struct goodix_ts_core, fb_notifier);
- *	struct fb_event *fb_event = data;
- *
- *	ts_info("zhuhanrui_callback event\n");
- *
- *	if (fb_event && fb_event->data && core_data) {
- *		if (event == FB_EARLY_EVENT_BLANK) {
- *			//before fb blank
- *		} else if (event == FB_EVENT_BLANK) {
- *			int *blank = fb_event->data;
- *
- *			if (*blank == FB_BLANK_UNBLANK)
- *				goodix_ts_resume(core_data);
- *			else if (*blank == FB_BLANK_POWERDOWN)
- *				goodix_ts_suspend(core_data);
- *		}
- *	}
- *
- *	return 0;
- *}
  */
+
+ int goodix_ts_fb_notifier_callback(struct notifier_block *self,
+ 	unsigned long event, void *data)
+ {
+ 	struct goodix_ts_core *core_data =
+ 		container_of(self, struct goodix_ts_core, fb_notifier);
+ 	struct fb_event *fb_event = data;
+ 
+ 	ts_info("zhuhanrui_callback event\n");
+ 
+ 	if (fb_event && fb_event->data && core_data) {
+ 		if (event == FB_EARLY_EVENT_BLANK) {
+ 			//before fb blank
+ 		} else if (event == FB_EVENT_BLANK) {
+ 			int *blank = fb_event->data;
+ 
+ 			if (*blank == FB_BLANK_UNBLANK)
+ 				goodix_ts_resume(core_data);
+ 			else if (*blank == FB_BLANK_POWERDOWN)
+ 				goodix_ts_suspend(core_data);
+ 		}
+ 	}
+ 
+ 	return 0;
+ }
+
 #endif
 
 #ifdef CONFIG_PM
@@ -2370,13 +2443,7 @@ static int goodix_ts_pm_suspend(struct device *dev)
 {
 	struct goodix_ts_core *core_data = dev_get_drvdata(dev);
 
-	ts_info("%s enter", __func__);
-
-	if (device_may_wakeup(dev) && core_data->gesture_enabled)
-		enable_irq_wake(core_data->irq);
-	core_data->tp_pm_suspend = true;
-	reinit_completion(&core_data->pm_resume_completion);
-	return 0;
+	return goodix_ts_suspend(core_data);
 }
 /**
  * goodix_ts_pm_resume - PM resume function
@@ -2385,13 +2452,8 @@ static int goodix_ts_pm_suspend(struct device *dev)
 static int goodix_ts_pm_resume(struct device *dev)
 {
 	struct goodix_ts_core *core_data = dev_get_drvdata(dev);
-	ts_info("%s enter.", __func__);
 
-	if (device_may_wakeup(dev) && core_data->gesture_enabled)
-		disable_irq_wake(core_data->irq);
-	core_data->tp_pm_suspend = false;
-	complete(&core_data->pm_resume_completion);
-	return 0;
+	return goodix_ts_resume(core_data);
 }
 #endif
 
@@ -2551,15 +2613,23 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 	/* register suspend and resume notifier callchain */
 	INIT_WORK(&cd->suspend_work, goodix_ts_suspend_work);
 	INIT_WORK(&cd->resume_work, goodix_ts_resume_work);
-#if defined(CONFIG_DRM)
-	cd->notifier.notifier_call = goodix_drm_state_change_callback;
-	if (mi_disp_register_client(&cd->notifier) < 0)
-		ts_err("ERROR: register notifier failed!\n");
-#else
-	cd->fb_notifier.notifier_call = goodix_ts_fb_notifier_callback;
-	if (fb_register_client(&cd->fb_notifier))
-		ts_err("Failed to register fb notifier client:%d", ret);
-#endif
+	INIT_DELAYED_WORK(&cd->panel_notifier_register_work,
+			  goodix_register_panel_notifier_work);
+
+	goodix_ts_check_panel();
+
+	if (active_panel == NULL) {
+		ts_err("Can't find panel,check again after 5s");
+		queue_delayed_work(system_wq, &cd->panel_notifier_register_work,
+				   0x4e2);
+	} else {
+		cd->notifier_cookie = (void *)panel_event_notifier_register(
+			1, 0, active_panel, goodix_drm_state_change_callback,
+			cd);
+		if (cd->notifier_cookie == NULL) {
+			ts_err("Failed to register for panel events");
+		}
+	}
 
 	/* register charger status change notifier */
 	INIT_WORK(&cd->power_supply_work, charger_power_supply_work);
@@ -4479,10 +4549,6 @@ static int goodix_ts_remove(struct platform_device *pdev)
 		gesture_module_exit();
 		inspect_module_exit();
 		hw_ops->irq_enable(core_data, false);
-#if defined(CONFIG_DRM)
-		if (mi_disp_unregister_client(&core_data->notifier))
-			ts_err("[MI_DISP]Error occurred while unregistering drm_notifier.");
-#endif
 #ifdef CONFIG_FB
 			/*fb_unregister_client(&core_data->fb_notifier);*/
 #endif

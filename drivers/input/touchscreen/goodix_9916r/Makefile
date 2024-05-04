@@ -27,3 +27,5 @@ clean:
 	@rm -rf *.order *.symvers* .tmp_versions
 	@find -name "*.o*" -o -name "*.mod*" -o -name "*.ko*" | xargs rm -f
 endif
+
+KBUILD_CFLAGS += -Wframe-larger-than=4096

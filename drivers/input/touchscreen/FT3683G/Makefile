@@ -15,8 +15,5 @@ ft3683g-y += focaltech_core.o \
 		focaltech_point_report_check.o \
 		focaltech_spi_v2.o \
 		focaltech_flash.o \
-		focaltech_upgrade_ft3683g.o \
-		focaltech_test.o \
-		focaltech_test_ini.o \
-		focaltech_test_ft3683g.o
+		focaltech_upgrade_ft3683g.o
 # N17 code for HQ-291091 by liunianliang at 2023/5/31 end

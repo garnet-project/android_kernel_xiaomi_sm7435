@@ -19,18 +19,18 @@
 *
 * File Name: focaltech_esdcheck.c
 *
-*    Author: Focaltech Driver Team
+* Author: Focaltech Driver Team
 *
-*   Created: 2016-08-03
+* Created: 2016-08-03
 *
-*  Abstract: ESD check function
+* Abstract: ESD check function
 *
-*   Version: v1.0
+* Version: v1.0
 *
 * Revision History:
-*        v1.0:
-*            First release. By luougojin 2016-08-03
-*        v1.1: By luougojin 2017-02-15
+*     v1.0:
+*     First release. By luougojin 2016-08-03
+*     v1.1: By luougojin 2017-02-15
 *            1. Add LCD_ESD_PATCH to control idc_esdcheck_lcderror
 *****************************************************************************/
 
@@ -105,10 +105,10 @@ int idc_esdcheck_lcderror(struct fts_ts_data *ts_data)
 
 	if (val == 0xAA) {
 		/*
-        * 1. Set flag lcd_need_reset = 1;
-        * 2. LCD driver need reset(recovery) LCD and set lcd_need_reset to 0
-        * 3. recover TP state
-        */
+		* 1. Set flag lcd_need_reset = 1;
+		* 2. LCD driver need reset(recovery) LCD and set lcd_need_reset to 0
+		* 3. recover TP state
+		*/
 		FTS_INFO("LCD ESD, need execute LCD reset");
 		lcd_need_reset = 1;
 		tp_need_recovery = 1;
@@ -125,7 +125,7 @@ static int fts_esdcheck_tp_reset(struct fts_ts_data *ts_data)
 	fts_esdcheck_data.flow_work_hold_cnt = 0;
 	fts_esdcheck_data.hardware_reset_cnt++;
 
-	fts_reset_proc(200);
+	fts_reset_proc(ts_data, 200);
 	fts_release_all_finger();
 	fts_tp_state_recovery(ts_data);
 
@@ -225,9 +225,9 @@ static int esdcheck_algorithm(struct fts_ts_data *ts_data)
 	if (fts_esdcheck_data.suspend == 1) {
 		FTS_DEBUG("In suspend, not check esd");
 		/* because in suspend state, adb can be used, when upgrade FW, will
-         * active ESD check(active = 1); But in suspend, then will don't
-         * queue_delayed_work, when resume, don't check ESD again
-         */
+		 * active ESD check(active = 1); But in suspend, then will don't
+		 * queue_delayed_work, when resume, don't check ESD again
+		 */
 		return 0;
 	}
 
@@ -286,7 +286,7 @@ static void esdcheck_func(struct work_struct *work)
 /*****************************************************************************
 *  Name: fts_esdcheck_proc_busy
 *  Brief: When APK or ADB command access TP via driver, then need set proc_debug,
-*         then will not check ESD.
+*		 then will not check ESD.
 *  Input:
 *  Output:
 *  Return:
@@ -302,7 +302,7 @@ void fts_esdcheck_proc_busy(struct fts_ts_data *ts_data, bool proc_debug)
 *  Name: fts_esdcheck_switch
 *  Brief: FTS esd check function switch.
 *  Input:   enable:  1 - Enable esd check
-*                    0 - Disable esd check
+*					0 - Disable esd check
 *  Output:
 *  Return:
 *****************************************************************************/
@@ -395,7 +395,7 @@ static ssize_t fts_esdcheck_show(struct device *dev,
 }
 
 /* sysfs esd node
- *   read example: cat  fts_esd_mode        ---read esd mode
+ *   read example: cat  fts_esd_mode		---read esd mode
  *   write example:echo 01 > fts_esd_mode   ---make esdcheck enable
  *
  */

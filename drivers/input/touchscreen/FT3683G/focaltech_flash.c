@@ -34,6 +34,9 @@
 *****************************************************************************/
 #include "focaltech_core.h"
 #include "focaltech_flash.h"
+#if IS_ENABLED(CONFIG_PRIZE_HARDWARE_INFO)
+#include "../../../misc/hardware_info/hardware_info.h"
+#endif
 
 /*****************************************************************************
 * Private constant and macro definitions using #define
@@ -64,7 +67,7 @@ struct upgrade_module module_list[] = {
 };
 
 struct upgrade_func *upgrade_func_list[] = {
-	&upgrade_func_ft5008,
+	&upgrade_func_ft5662,
 };
 
 struct fts_upgrade *fwupgrade;
@@ -699,8 +702,8 @@ int fts_fwupg_enter_into_boot(void)
  * Name: fts_fwupg_check_flash_status
  * Brief: read status from tp
  * Input: flash_status: correct value from tp
- *        retries: read retry times
- *        retries_delay: retry delay
+ *		retries: read retry times
+ *		retries_delay: retry delay
  * Output:
  * Return: return true if flash status check pass, otherwise return false
 ***********************************************************************/
@@ -770,7 +773,7 @@ int fts_fwupg_erase(u32 delay)
  * Name: fts_fwupg_ecc_cal
  * Brief: calculate and get ecc from tp
  * Input: saddr - start address need calculate ecc
- *        len - length need calculate ecc
+ *		len - length need calculate ecc
  * Output:
  * Return: return data ecc of tp if success, otherwise return error code
  ***********************************************************************/
@@ -888,9 +891,9 @@ int fts_fwupg_ecc_cal(u32 saddr, u32 len)
  * Name: fts_flash_write_buf
  * Brief: write buf data to flash address
  * Input: saddr - start address data write to flash
- *        buf - data buffer
- *        len - data length
- *        delay - delay after write
+ *		buf - data buffer
+ *		len - data length
+ *		delay - delay after write
  * Output:
  * Return: return data ecc of host if success, otherwise return error code
  ***********************************************************************/
@@ -1107,13 +1110,11 @@ int fts_flash_read_buf(u32 saddr, u8 *buf, u32 len)
  * Name: fts_flash_read
  * Brief:
  * Input:  addr  - address of flash
- *         len   - length of read
+ *        len   - length of read
  * Output: buf   - data read from flash
  * Return: return 0 if success, otherwise return error code
  ***********************************************************************/
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-/* static */ int fts_flash_read(u32 addr, u8 *buf, u32 len)
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+static int fts_flash_read(u32 addr, u8 *buf, u32 len)
 {
 	int ret = 0;
 
@@ -1299,12 +1300,12 @@ int fts_upgrade_bin(char *fw_name, bool force)
 			FTS_INFO("upgrade function is null, no upgrade");
 		}
 	}
-	/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 start */
+
 	if (ret < 0) {
 		FTS_ERROR("upgrade fw bin failed");
+		fts_fwupg_reset_in_boot();
 		goto err_bin;
 	}
-	/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 end */
 
 	FTS_INFO("upgrade fw bin success");
 	ret = 0;
@@ -1561,8 +1562,8 @@ static int fts_param_get_ver_in_host(struct fts_upgrade *upg, u8 *ver)
 
 /*
  * return: < 0 : error
- *         == 0: no ide
- *         == 1: ide
+ *		 == 0: no ide
+ *		 == 1: ide
  */
 static int fts_param_ide_in_host(struct fts_upgrade *upg)
 {
@@ -1592,8 +1593,8 @@ static int fts_param_ide_in_host(struct fts_upgrade *upg)
 
 /*
  * return: < 0 : error
- *         0   : no ide
- *         1   : ide
+ *		 0   : no ide
+ *		 1   : ide
  */
 static int fts_param_ide_in_tp(u8 *val)
 {
@@ -1790,10 +1791,8 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
 			if (upg->func->upgrade) {
 				ret = upg->func->upgrade(upg->fw,
 							 upg->fw_length);
-				/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 start */
 				if (ret < 0) {
-					FTS_ERROR(
-						"fw upgrade fail, enter retry!");
+					fts_fwupg_reset_in_boot();
 				} else {
 					fts_fwupg_get_ver_in_tp(&ver);
 					FTS_INFO(
@@ -1801,7 +1800,6 @@ int fts_fwupg_upgrade(struct fts_upgrade *upg)
 						ver);
 					break;
 				}
-				/* N17 code for HQ-329479 by huangshiquan at 2023/09/16 end */
 			} else {
 				FTS_ERROR(
 					"upgrade func/upgrade is null, return immediately");
@@ -1977,31 +1975,8 @@ static int fts_fwupg_get_module_info(struct fts_upgrade *upg)
 			}
 		}
 		if (i >= FTS_GET_MODULE_NUM) {
-			/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 start */
-			if (tp_vendor) {
-				if (strcmp(tp_vendor, FTS_MODULE_NAME) == 0) {
-					info = &module_list[FTS_CSOT_PANLE_INDEX];
-					upg->module_id = info->id;
-					FTS_INFO(
-						"focaltech tp, vendor is %s !!!",
-						tp_vendor);
-				} else if (strcmp(tp_vendor,
-						  FTS_MODULE2_NAME) == 0) {
-					info = &module_list
-						       [FTS_TianMa_PANLE_INDEX];
-					upg->module_id = info->id;
-					FTS_INFO(
-						"focaltech tp, vendor is %s !!!",
-						tp_vendor);
-				} else {
-					FTS_ERROR("not focaltech tp!!!\n");
-					return -ENODATA;
-				}
-			} else {
-				FTS_ERROR("no module id match, don't get file");
-				return -ENODATA;
-			}
-			/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 end */
+			FTS_ERROR("no module id match, don't get file");
+			return -ENODATA;
 		}
 	}
 
@@ -2021,18 +1996,8 @@ static int fts_get_fw_file_via_request_firmware(struct fts_upgrade *upg)
 		return -EINVAL;
 	}
 
-	/* N17 code for HQ-307165 by liunianliang at 2023/07/11 start */
-	if (upg->ts_data->lockdown_info[7] == 0x01) {
-		snprintf(fwname, FILE_NAME_LENGTH, "%s%s_mask0x%02x.bin",
-			 FTS_FW_NAME_PREX_WITH_REQUEST,
-			 upg->module_info->vendor_name,
-			 upg->ts_data->lockdown_info[7]);
-	} else {
-		snprintf(fwname, FILE_NAME_LENGTH, "%s%s.bin",
-			 FTS_FW_NAME_PREX_WITH_REQUEST,
-			 upg->module_info->vendor_name);
-	}
-	/* N17 code for HQ-307165 by liunianliang at 2023/07/11 end */
+	snprintf(fwname, FILE_NAME_LENGTH, "%s%s.bin",
+		 FTS_FW_NAME_PREX_WITH_REQUEST, upg->module_info->vendor_name);
 
 	ret = request_firmware(&fw, fwname, upg->ts_data->dev);
 	if (0 == ret) {
@@ -2071,16 +2036,16 @@ static int fts_get_fw_file_via_i(struct fts_upgrade *upg)
 /*****************************************************************************
  *  Name: fts_fwupg_get_fw_file
  *  Brief: get fw image/file,
- *         If support muitl modules, please set FTS_GET_MODULE_NUM, and FTS_-
- *         MODULE_ID/FTS_MODULE_NAME;
- *         If get fw via .i file, please set FTS_FW_REQUEST_SUPPORT=0, and F-
- *         TS_MODULE_ID; will use module id to distingwish different modules;
- *         If get fw via reques_firmware(), please set FTS_FW_REQUEST_SUPPORT
- *         =1, and FTS_MODULE_NAME; fw file name will be composed of "focalt-
- *         ech_ts_fw_" & FTS_VENDOR_NAME;
+ *		 If support muitl modules, please set FTS_GET_MODULE_NUM, and FTS_-
+ *		 MODULE_ID/FTS_MODULE_NAME;
+ *		 If get fw via .i file, please set FTS_FW_REQUEST_SUPPORT=0, and F-
+ *		 TS_MODULE_ID; will use module id to distingwish different modules;
+ *		 If get fw via reques_firmware(), please set FTS_FW_REQUEST_SUPPORT
+ *		 =1, and FTS_MODULE_NAME; fw file name will be composed of "focalt-
+ *		 ech_ts_fw_" & FTS_VENDOR_NAME;
  *
- *         If have flash, module_id=vendor_id, If non-flash,module_id need
- *         transfer from LCD driver(gpio or lcm_id or ...);
+ *		 If have flash, module_id=vendor_id, If non-flash,module_id need
+ *		 transfer from LCD driver(gpio or lcm_id or ...);
  *  Input:
  *  Output:
  *  Return: return 0 if success, otherwise return error code
@@ -2137,8 +2102,8 @@ static void fts_fwupg_init_ic_detail(struct fts_upgrade *upg)
 /*****************************************************************************
  *  Name: fts_fwupg_work
  *  Brief: 1. get fw image/file
- *         2. ic init if have
- *         3. call upgrade main function(fts_fwupg_auto_upgrade)
+ *		 2. ic init if have
+ *		 3. call upgrade main function(fts_fwupg_auto_upgrade)
  *  Input:
  *  Output:
  *  Return:
@@ -2147,6 +2112,9 @@ static void fts_fwupg_work(struct work_struct *work)
 {
 	int ret = 0;
 	struct fts_upgrade *upg = fwupgrade;
+#if IS_ENABLED(CONFIG_PRIZE_HARDWARE_INFO)
+	u8 fwver = 0;
+#endif
 
 #if !FTS_AUTO_UPGRADE_EN
 	FTS_INFO("FTS_AUTO_UPGRADE_EN is disabled, not upgrade when power on");
@@ -2163,13 +2131,6 @@ static void fts_fwupg_work(struct work_struct *work)
 	fts_irq_disable();
 	fts_esdcheck_switch(upg->ts_data, DISABLE);
 
-	/* N17 code for HQ-307165 by liunianliang at 2023/07/11 start */
-	ret = fts_init_lockdown_info(upg->ts_data->lockdown_info);
-	if (ret) {
-		FTS_ERROR("init lockdown info fail!");
-	}
-	/* N17 code for HQ-307165 by liunianliang at 2023/07/11 end */
-
 	/* get fw */
 	ret = fts_fwupg_get_fw_file(upg);
 	if (ret < 0) {
@@ -2179,19 +2140,15 @@ static void fts_fwupg_work(struct work_struct *work)
 		fts_fwupg_init_ic_detail(upg);
 		/* run auto upgrade */
 		fts_fwupg_auto_upgrade(upg);
+#if IS_ENABLED(CONFIG_PRIZE_HARDWARE_INFO)
+		fts_read_reg(FTS_REG_FW_VER, &fwver);
+		sprintf(current_tp_info.chip, "FT3681, FW_VER:0x%02x", fwver);
+#endif
 	}
 
 	fts_esdcheck_switch(upg->ts_data, ENABLE);
 	fts_irq_enable();
 	upg->ts_data->fw_loading = 0;
-
-	/* N17 code for HQ-306279 by liunianliang at 2023/07/07 start */
-	/* create hq sysfs ctp node */
-	ret = fts_ts_hw_info(upg->ts_data);
-	if (!ret) {
-		FTS_INFO("Sucess add fts_ts_hw_info");
-	}
-	/* N17 code for HQ-306279 by liunianliang at 2023/07/07 end */
 }
 
 int fts_fwupg_init(struct fts_ts_data *ts_data)

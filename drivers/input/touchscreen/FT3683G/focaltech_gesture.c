@@ -34,12 +34,12 @@
 *****************************************************************************/
 #include "focaltech_core.h"
 
+extern int tp_gesture_flag;
+
 /******************************************************************************
 * Private constant and macro definitions using #define
 *****************************************************************************/
-/* N17 code for HQ-291091 by liunianliang at 2023/5/31 start */
-#define KEY_GESTURE_U KEY_POWER
-/* N17 code for HQ-291091 by liunianliang at 2023/5/31 end */
+#define KEY_GESTURE_U KEY_U
 #define KEY_GESTURE_UP KEY_UP
 #define KEY_GESTURE_DOWN KEY_DOWN
 #define KEY_GESTURE_LEFT KEY_LEFT
@@ -53,15 +53,14 @@
 #define KEY_GESTURE_V KEY_V
 #define KEY_GESTURE_C KEY_C
 #define KEY_GESTURE_Z KEY_Z
+#define KEY_GESTURE_CLICK KEY_WAKEUP
+#define KEY_GESTURE_FOD KEY_FINGER
 
 #define GESTURE_LEFT 0x20
 #define GESTURE_RIGHT 0x21
 #define GESTURE_UP 0x22
 #define GESTURE_DOWN 0x23
 #define GESTURE_DOUBLECLICK 0x24
-/* N17 code for HQ-290808 by liunianliang at 2023/6/19 start */
-#define GESTURE_SINGLETAP 0x25
-/* N17 code for HQ-290808 by liunianliang at 2023/6/19 end */
 #define GESTURE_O 0x30
 #define GESTURE_W 0x31
 #define GESTURE_M 0x32
@@ -71,6 +70,7 @@
 #define GESTURE_V 0x54
 #define GESTURE_Z 0x41
 #define GESTURE_C 0x34
+#define GESTURE_SINGLECLICK 0x27
 
 /*****************************************************************************
 * Private enumerations, structures and unions using typedef
@@ -135,9 +135,12 @@ static ssize_t fts_gesture_store(struct device *dev,
 	if (FTS_SYSFS_ECHO_ON(buf)) {
 		FTS_DEBUG("enable gesture");
 		ts_data->gesture_support = ENABLE;
+		tp_gesture_flag = ENABLE;
 	} else if (FTS_SYSFS_ECHO_OFF(buf)) {
 		FTS_DEBUG("disable gesture");
 		ts_data->gesture_support = DISABLE;
+		if (ts_data->fod_support == DISABLE)
+			tp_gesture_flag = DISABLE;
 	}
 	mutex_unlock(&ts_data->input_dev->mutex);
 
@@ -214,6 +217,22 @@ static ssize_t fts_gesture_bm_store(struct device *dev,
 
 	return count;
 }
+static ssize_t fts_gesture_point_show(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	int count = 0;
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	struct input_dev *input_dev = ts_data->input_dev;
+	struct fts_gesture_st *gesture = &fts_gesture_data;
+
+	mutex_lock(&input_dev->mutex);
+
+	count = snprintf(buf + count, PAGE_SIZE, "x:%x\ny:%x\n",
+			 gesture->coordinate_x[0], gesture->coordinate_y[0]);
+
+	mutex_unlock(&input_dev->mutex);
+	return count;
+}
 
 /* sysfs gesture node
  *   read example: cat  fts_gesture_mode       ---read gesture mode
@@ -230,11 +249,14 @@ static DEVICE_ATTR(fts_gesture_buf, S_IRUGO | S_IWUSR, fts_gesture_buf_show,
 
 static DEVICE_ATTR(fts_gesture_bm, S_IRUGO | S_IWUSR, fts_gesture_bm_show,
 		   fts_gesture_bm_store);
+static DEVICE_ATTR(fts_gesture_point, S_IRUGO | S_IWUSR, fts_gesture_point_show,
+		   NULL);
 
 static struct attribute *fts_gesture_mode_attrs[] = {
 	&dev_attr_fts_gesture_mode.attr,
 	&dev_attr_fts_gesture_buf.attr,
 	&dev_attr_fts_gesture_bm.attr,
+	&dev_attr_fts_gesture_point.attr,
 	NULL,
 };
 
@@ -255,10 +277,31 @@ static int fts_create_gesture_sysfs(struct device *dev)
 
 	return 0;
 }
-
-static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
+void fts_fod_report_key(struct fts_ts_data *ts_data)
 {
-	int gesture;
+	//FTS_DEBUG("Enter, ts_data->fod_info.fp_down = %d, ts_data->fod_info.fp_down_report = %d",
+	//			ts_data->fod_info.fp_down, ts_data->fod_info.fp_down_report);
+	if ((ts_data->fod_info.fp_down) &&
+	    (!ts_data->fod_info.fp_down_report)) {
+		ts_data->fod_info.fp_down_report = 1;
+		input_report_key(ts_data->input_dev, KEY_GESTURE_FOD, 1);
+		input_sync(ts_data->input_dev);
+		FTS_DEBUG("KEY_GESTURE_FOD, 1");
+	} else if ((!ts_data->fod_info.fp_down) &&
+		   (ts_data->fod_info.fp_down_report)) {
+		ts_data->fod_info.fp_down_report = 0;
+		input_report_key(ts_data->input_dev, KEY_GESTURE_FOD, 0);
+		input_sync(ts_data->input_dev);
+		FTS_DEBUG("KEY_GESTURE_FOD, 0");
+		if (ts_data->suspended == false)
+			fts_write_reg(FTS_REG_FOD_EN, DISABLE);
+	}
+}
+
+static void fts_gesture_report(struct fts_ts_data *ts_data, int gesture_id)
+{
+	int gesture = -1;
+	struct input_dev *input_dev = ts_data->input_dev;
 
 	FTS_DEBUG("gesture_id:0x%x", gesture_id);
 	switch (gesture_id) {
@@ -277,11 +320,6 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
 	case GESTURE_DOUBLECLICK:
 		gesture = KEY_GESTURE_U;
 		break;
-	/* N17 code for HQ-290808 by liunianliang at 2023/6/19 start */
-	case GESTURE_SINGLETAP:
-		gesture = KEY_GOTO;
-		break;
-	/* N17 code for HQ-290808 by liunianliang at 2023/6/19 end */
 	case GESTURE_O:
 		gesture = KEY_GESTURE_O;
 		break;
@@ -309,6 +347,9 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
 	case GESTURE_C:
 		gesture = KEY_GESTURE_C;
 		break;
+	case GESTURE_SINGLECLICK:
+		gesture = KEY_GESTURE_CLICK;
+		break;
 	default:
 		gesture = -1;
 		break;
@@ -331,7 +372,7 @@ static void fts_gesture_report(struct input_dev *input_dev, int gesture_id)
 *
 *        gesture data length: 1(enable) + 1(reserve) + 2(header) + 6 * 4
 * Input: ts_data - global struct data
-*        data    - gesture data buffer
+*        data	- gesture data buffer
 * Output:
 * Return: 0 - read gesture data successfully, the report data is gesture data
 *         1 - tp not in suspend/gesture not enable in TP FW
@@ -343,7 +384,6 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 	int i = 0;
 	int index = 0;
 	u8 buf[FTS_GESTURE_DATA_LEN] = { 0 };
-	struct input_dev *input_dev = ts_data->input_dev;
 	struct fts_gesture_st *gesture = &fts_gesture_data;
 
 	if (!ts_data->gesture_support) {
@@ -371,20 +411,6 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 	FTS_DEBUG("gesture_id=%d, point_num=%d", gesture->gesture_id,
 		  gesture->point_num);
 
-	/* N17 code for HQ-290808 by liunianliang at 2023/6/19 start */
-	if (gesture->gesture_id == GESTURE_DOUBLECLICK &&
-	    !(ts_data->gesture_status & 0x01)) {
-		FTS_INFO("double click is not enabled!");
-		return 1;
-	}
-
-	if (gesture->gesture_id == GESTURE_SINGLETAP &&
-	    !(ts_data->gesture_status & 0x02)) {
-		FTS_INFO("single tap is not enabled!");
-		return 1;
-	}
-	/* N17 code for HQ-290808 by liunianliang at 2023/6/19 end */
-
 	/* save point data,max:6 */
 	for (i = 0; i < FTS_GESTURE_POINTS_MAX; i++) {
 		index = 4 * i + 4;
@@ -395,7 +421,7 @@ int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 	}
 
 	/* report gesture to OS */
-	fts_gesture_report(input_dev, gesture->gesture_id);
+	fts_gesture_report(ts_data, gesture->gesture_id);
 	return 0;
 }
 
@@ -404,11 +430,15 @@ void fts_gesture_recovery(struct fts_ts_data *ts_data)
 	if (ts_data->gesture_support && ts_data->suspended) {
 		FTS_DEBUG("gesture recovery...");
 		fts_write_reg(0xD1, 0xFF);
-		fts_write_reg(0xD2, 0xFF);
-		fts_write_reg(0xD5, 0xFF);
-		fts_write_reg(0xD6, 0xFF);
-		fts_write_reg(0xD7, 0xFF);
-		fts_write_reg(0xD8, 0xFF);
+		//fts_write_reg(0xD2, 0xFF);
+		//fts_write_reg(0xD5, 0xFF);
+		//fts_write_reg(0xD6, 0xFF);
+		//fts_write_reg(0xD7, 0xFF);
+		//fts_write_reg(0xD8, 0xFF);
+		fts_write_reg(FTS_REG_GESTURE_EN, ENABLE);
+	}
+	if (ts_data->fod_support && ts_data->suspended) {
+		fts_write_reg(FTS_REG_FOD_EN, FTS_REG_FOD_VALUE);
 		fts_write_reg(FTS_REG_GESTURE_EN, ENABLE);
 	}
 }
@@ -423,26 +453,34 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 	if (enable_irq_wake(ts_data->irq)) {
 		FTS_DEBUG("enable_irq_wake(irq:%d) fail", ts_data->irq);
 	}
-
-	for (i = 0; i < 5; i++) {
+	if (ts_data->gesture_support) {
 		fts_write_reg(0xD1, 0xFF);
-		fts_write_reg(0xD2, 0xFF);
-		fts_write_reg(0xD5, 0xFF);
-		fts_write_reg(0xD6, 0xFF);
-		fts_write_reg(0xD7, 0xFF);
-		fts_write_reg(0xD8, 0xFF);
-		fts_write_reg(FTS_REG_GESTURE_EN, ENABLE);
-		msleep(1);
-		fts_read_reg(FTS_REG_GESTURE_EN, &state);
-		if (state == ENABLE)
-			break;
+		//fts_write_reg(0xD2, 0xFF);
+		//fts_write_reg(0xD5, 0xFF);
+		//fts_write_reg(0xD6, 0xFF);
+		//fts_write_reg(0xD7, 0xFF);
+		//fts_write_reg(0xD8, 0xFF);
+	} else {
+		fts_write_reg(0xD1, 0x7F);
 	}
-
-	if (i >= 5)
-		FTS_ERROR("make IC enter into gesture(suspend) fail,state:%x",
-			  state);
-	else
-		FTS_INFO("Enter into gesture(suspend) successfully");
+	if (ts_data->fod_support) {
+		fts_write_reg(FTS_REG_FOD_EN, FTS_REG_FOD_VALUE);
+	}
+	if ((ts_data->gesture_support) || (ts_data->fod_support)) {
+		for (i = 0; i < 5; i++) {
+			fts_write_reg(FTS_REG_GESTURE_EN, ENABLE);
+			msleep(1);
+			fts_read_reg(FTS_REG_GESTURE_EN, &state);
+			if (state == ENABLE)
+				break;
+		}
+		if (i >= 5)
+			FTS_ERROR(
+				"make IC enter into gesture(suspend) fail,state:%x",
+				state);
+		else
+			FTS_INFO("Enter into gesture(suspend) successfully");
+	}
 
 	FTS_FUNC_EXIT();
 	return ret;
@@ -457,58 +495,24 @@ int fts_gesture_resume(struct fts_ts_data *ts_data)
 	if (disable_irq_wake(ts_data->irq)) {
 		FTS_DEBUG("disable_irq_wake(irq:%d) fail", ts_data->irq);
 	}
-
-	for (i = 0; i < 5; i++) {
-		fts_write_reg(FTS_REG_GESTURE_EN, DISABLE);
-		msleep(1);
-		fts_read_reg(FTS_REG_GESTURE_EN, &state);
-		if (state == DISABLE)
-			break;
-	}
-
-	if (i >= 5)
-		FTS_ERROR("make IC exit gesture(resume) fail,state:%x", state);
-	else
-		FTS_INFO("resume from gesture successfully");
-
-	FTS_FUNC_EXIT();
-	return 0;
-}
-
-/* N17 code for HQ-291091 by liunianliang at 2023/5/31 start */
-#define WAKEUP_OFF 0x04
-#define WAKEUP_ON 0x05
-int fts_gesture_switch(struct input_dev *dev, unsigned int type,
-		       unsigned int code, int value)
-{
-	FTS_FUNC_ENTER();
-	if (type == EV_SYN && code == SYN_CONFIG) {
-		if (value == WAKEUP_OFF) {
-			/* N17 code for HQ-290808 by liunianliang at 2023/6/19 start */
-			fts_data->gesture_status &= ~(1 << GESTURE_DOUBLETAP);
-			/* N17 code for HQ-290808 by liunianliang at 2023/6/19 end */
-			/* N17 code for HQ-306221 by liunianliang at 2023/7/15 start */
-			if (fts_data->gesture_status != 0) {
-				FTS_INFO("aod is on, keeep gesture enable!\n");
-				fts_data->gesture_support = true;
-			} else {
-				FTS_INFO("gesture disabled\n");
-				fts_data->gesture_support = false;
-			}
-			/* N17 code for HQ-306221 by liunianliang at 2023/7/15 end */
-		} else if (value == WAKEUP_ON) {
-			fts_data->gesture_support = true;
-			/* N17 code for HQ-290808 by liunianliang at 2023/6/19 start */
-			fts_data->gesture_status |= 1 << GESTURE_DOUBLETAP;
-			/* N17 code for HQ-290808 by liunianliang at 2023/6/19 end */
-			FTS_INFO("gesture enabled\n");
+	if ((ts_data->gesture_support) || (ts_data->fod_support)) {
+		for (i = 0; i < 5; i++) {
+			fts_write_reg(FTS_REG_GESTURE_EN, DISABLE);
+			msleep(1);
+			fts_read_reg(FTS_REG_GESTURE_EN, &state);
+			if (state == DISABLE)
+				break;
 		}
+		if (i >= 5)
+			FTS_ERROR("make IC exit gesture(resume) fail,state:%x",
+				  state);
+		else
+			FTS_INFO("resume from gesture successfully");
 	}
 
 	FTS_FUNC_EXIT();
 	return 0;
 }
-/* N17 code for HQ-291091 by liunianliang at 2023/5/31 end */
 
 int fts_gesture_init(struct fts_ts_data *ts_data)
 {
@@ -530,6 +534,8 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_V);
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_Z);
 	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_C);
+	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_FOD);
+	input_set_capability(input_dev, EV_KEY, KEY_GESTURE_CLICK);
 
 	__set_bit(KEY_GESTURE_RIGHT, input_dev->keybit);
 	__set_bit(KEY_GESTURE_LEFT, input_dev->keybit);
@@ -545,15 +551,15 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 	__set_bit(KEY_GESTURE_V, input_dev->keybit);
 	__set_bit(KEY_GESTURE_C, input_dev->keybit);
 	__set_bit(KEY_GESTURE_Z, input_dev->keybit);
+	__set_bit(KEY_GESTURE_FOD, input_dev->keybit);
+	__set_bit(KEY_GESTURE_CLICK, input_dev->keybit);
 
 	fts_create_gesture_sysfs(ts_data->dev);
 
 	memset(&fts_gesture_data, 0, sizeof(struct fts_gesture_st));
 	ts_data->gesture_bmode = GESTURE_BM_REG;
 	ts_data->gesture_support = FTS_GESTURE_EN;
-	/* N17 code for HQ-291091 by liunianliang at 2023/5/31 start */
-	ts_data->input_dev->event = fts_gesture_switch;
-	/* N17 code for HQ-291091 by liunianliang at 2023/5/31 end */
+	ts_data->fod_support = FTS_FOD_EN;
 
 	if (ts_data->bus_type == BUS_TYPE_SPI) {
 		if ((ts_data->ic_info.ids.type <= 0x25) ||

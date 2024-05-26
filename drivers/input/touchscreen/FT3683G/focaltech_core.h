@@ -115,13 +115,25 @@
 #define FTS_MAX_TOUCH_BUF 4096
 #define FTS_MAX_BUS_BUF 4096
 
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 start */
-#define EXPERT_ARRAY_SIZE 3
-#define PANEL_ORIENTATION_DEGREE_0 0 /* normal portrait orientation */
-#define PANEL_ORIENTATION_DEGREE_90 1 /* anticlockwise 90 degrees */
-#define PANEL_ORIENTATION_DEGREE_180 2 /* anticlockwise 180 degrees */
-#define PANEL_ORIENTATION_DEGREE_270 3 /* anticlockwise 270 degrees */
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 end */
+#define FTS_REG_FOD_INFO 0xE1
+#define FTS_REG_FOD_INFO_LEN 9
+#define FTS_REG_FOD_INFO_ID 0x26
+
+#define FTS_TX_MAX 17
+#define FTS_RX_MAX 38
+#define FTS_DIFF_COUNT_LEN 1
+#define FTS_DIFF_DATA_LEN                                                      \
+	(FTS_TX_MAX * FTS_RX_MAX + (FTS_TX_MAX + FTS_RX_MAX) * 2 + 11 * 2) * 2
+/*
+ * start cmd: 0x01
+ * touch data : 62 Bytes
+ * Black Screen Gesture/Edge Suppression Feature Data: 28 Bytes
+ * fast differ: diff_count + Rx*Tx*2 + Tx*2 + Rx*2 + unused*2 + Tx*2 + (Rx+2)*2  + unused*2
+ *                      1  + 38*17*2 + 17*2 + 38*2 +    11*2  + 17*2 +   38*2    + 11*2  = 1557 Bytes
+ */
+#define FTS_DATA_WITH_DIFF_LEN                                                 \
+	(FTS_TOUCH_DATA_LEN + FTS_GESTURE_DATA_LEN + FTS_DIFF_COUNT_LEN +      \
+	 FTS_DIFF_DATA_LEN)
 
 /*****************************************************************************
 *  Alternative mode (When something goes wrong, the modules may be able to solve the problem.)
@@ -129,10 +141,8 @@
 /*
  * For commnication error in PM(deep sleep) state
  */
-#define FTS_PATCH_COMERR_PM 0
+#define FTS_PATCH_COMERR_PM 1
 #define FTS_TIMEOUT_COMERR_PM 700
-
-#define FTS_TP_ADD 1
 
 /*
  * For high resolution
@@ -165,26 +175,16 @@ struct fts_ts_platform_data {
 	u32 irq_gpio_flags;
 	u32 reset_gpio;
 	u32 reset_gpio_flags;
-	u32 iovdd_gpio;
-	u32 iovdd_gpio_flags;
 	bool have_key;
 	u32 key_number;
 	u32 keys[FTS_MAX_KEYS];
 	u32 key_y_coords[FTS_MAX_KEYS];
 	u32 key_x_coords[FTS_MAX_KEYS];
-	char avdd_name[32];
-	char iovdd_name[32];
 	u32 x_max;
 	u32 y_max;
 	u32 x_min;
 	u32 y_min;
 	u32 max_touch_number;
-
-	/* N17 code for HQ-299546 by liunianliang at 2023/6/13 start */
-	u32 touch_range_array[5];
-	u32 touch_def_array[4];
-	u32 touch_expert_array[4 * EXPERT_ARRAY_SIZE];
-	/* N17 code for HQ-299546 by liunianliang at 2023/6/13 end */
 };
 
 struct ts_event {
@@ -211,6 +211,16 @@ struct pen_event {
 	int azimuth;
 	int tool_type;
 };
+struct fts_fod_info {
+	u8 fp_id;
+	u8 event_type;
+	u8 fp_area_rate;
+	u8 tp_area;
+	u16 fp_x;
+	u16 fp_y;
+	u8 fp_down;
+	u8 fp_down_report;
+};
 
 struct fts_ts_data {
 	struct i2c_client *client;
@@ -228,6 +238,7 @@ struct fts_ts_data {
 	wait_queue_head_t ts_waitqueue;
 	struct ftxxxx_proc proc;
 	struct ftxxxx_proc proc_ta;
+	struct ftxxxx_proc proc_charger;
 	spinlock_t irq_lock;
 	struct mutex report_mutex;
 	struct mutex bus_lock;
@@ -251,13 +262,11 @@ struct fts_ts_data {
 	bool prc_support;
 	bool prc_mode;
 	bool esd_support;
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-	bool earphone_mode;
-	u8 edge_mode;
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+	bool pocket_mode;
+	bool game_mode;
 	bool gesture_support; /* gesture enable or disable, default: disable */
 	u8 gesture_bmode; /*gesture buffer mode*/
-
+	u8 fod_support; /* Fod enable or disable, default: disable */
 	u8 pen_etype;
 	struct pen_event pevent;
 	struct ts_event events[FTS_MAX_POINTS_SUPPORT]; /* multi-touch */
@@ -276,8 +285,8 @@ struct fts_ts_data {
 	int bus_type;
 	int bus_ver;
 	struct regulator *vdd;
-	struct regulator *iovdd;
 	struct regulator *vcc_i2c;
+	struct fts_fod_info fod_info;
 #if FTS_PINCTRL_EN
 	struct pinctrl *pinctrl;
 	struct pinctrl_state *pins_active;
@@ -286,42 +295,7 @@ struct fts_ts_data {
 #endif
 
 	struct notifier_block fb_notif;
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-	char vendor[32];
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-
-	/* N17 code for HQ-291711 by liunianliang at 2023/06/03 start */
-	struct power_supply *usb_psy;
-	struct tcpc_device *tcpc;
-	struct notifier_block tcpc_nb;
-	struct notifier_block earphone_nb;
-	/* N17 code for HQ-291711 by liunianliang at 2023/06/03 end */
-
-	/* N17 code for HQ-290835 by liunianliang at 2023/6/12 start */
-	struct mutex cmd_update_mutex;
-	int palm_sensor_switch;
-	/* N17 code for HQ-290835 by liunianliang at 2023/6/12 end */
-
-	/* N17 code for HQ-299546 by liunianliang at 2023/6/13 start */
-	bool is_expert_mode;
-	bool gamemode_enabled;
-	u8 gesture_cmd;
-	u8 gesture_status;
-	int gesture_cmd_delay;
-	/* N17 code for HQ-299546 by liunianliang at 2023/6/13 end */
-
-	/* N17 code for HQ-299728 by liunianliang at 2023/6/15 start */
-	u8 lockdown_info[0x20];
-	/* N17 code for HQ-299728 by liunianliang at 2023/6/15 end */
 };
-
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 start */
-enum GESTURE_MODE_TYPE {
-	GESTURE_DOUBLETAP,
-	GESTURE_AOD,
-	GESTURE_FOD,
-};
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 end */
 
 enum _FTS_BUS_TYPE {
 	BUS_TYPE_NONE,
@@ -342,6 +316,7 @@ enum _FTS_TOUCH_ETYPE {
 	TOUCH_GESTURE = 0x80,
 	TOUCH_FW_INIT = 0x81,
 	TOUCH_DEFAULT_HI_RES = 0x82,
+	TOUCH_FOD = 0x83,
 	TOUCH_IGNORE = 0xFE,
 	TOUCH_ERROR = 0xFF,
 };
@@ -355,16 +330,6 @@ enum _FTS_GESTURE_BMODE {
 	GESTURE_BM_REG,
 	GESTURE_BM_TOUCH,
 };
-
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-struct lct_tp_data_dump {
-	u8 tx_num;
-	u8 rx_num;
-	int *rawdata;
-	int *diffdata;
-	struct proc_dir_entry *tp_data_dump_proc;
-};
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
 /*****************************************************************************
 * Global variable or extern global variabls/functions
@@ -390,6 +355,7 @@ void fts_gesture_recovery(struct fts_ts_data *ts_data);
 int fts_gesture_readdata(struct fts_ts_data *ts_data, u8 *data);
 int fts_gesture_suspend(struct fts_ts_data *ts_data);
 int fts_gesture_resume(struct fts_ts_data *ts_data);
+void fts_fod_report_key(struct fts_ts_data *ts_data);
 
 /* Apk and functions */
 int fts_create_apk_debug_channel(struct fts_ts_data *);
@@ -398,17 +364,6 @@ void fts_release_apk_debug_channel(struct fts_ts_data *);
 /* ADB functions */
 int fts_create_sysfs(struct fts_ts_data *ts_data);
 int fts_remove_sysfs(struct fts_ts_data *ts_data);
-
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-/* cust functions */
-int fts_create_procfs(struct fts_ts_data *ts_data);
-int fts_remove_procfs(struct fts_ts_data *ts_data);
-extern const struct proc_ops fts_tp_data_dump_ops;
-extern const struct proc_ops fts_ito_test_ops;
-extern bool ito_test_result;
-extern u8 ito_test_status;
-extern struct lct_tp_data_dump *lct_tp_data_dump_p;
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
 /* ESD */
 int fts_esdcheck_init(struct fts_ts_data *ts_data);
@@ -420,8 +375,6 @@ void fts_esdcheck_resume(struct fts_ts_data *ts_data);
 bool fts_esd_is_disable(void);
 
 /* Host test */
-int fts_test_init(struct fts_ts_data *ts_data);
-int fts_test_exit(struct fts_ts_data *ts_data);
 
 /* Point Report Check*/
 int fts_point_report_check_init(struct fts_ts_data *ts_data);
@@ -436,12 +389,9 @@ int fts_upgrade_bin(char *fw_name, bool force);
 int fts_enter_test_environment(bool test_state);
 int fts_enter_gesture_fw(void);
 int fts_enter_normal_fw(void);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-int fts_read_lockdown_info(u8 *buf);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
 /* Other */
-int fts_reset_proc(int hdelayms);
+int fts_reset_proc(struct fts_ts_data *ts_data, int hdelayms);
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h);
 int fts_wait_tp_to_valid(void);
 void fts_release_all_finger(void);
@@ -449,21 +399,22 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data);
 int fts_ex_mode_init(struct fts_ts_data *ts_data);
 int fts_ex_mode_exit(struct fts_ts_data *ts_data);
 int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
+extern void fts_read_fod_info(struct fts_ts_data *ts_data);
+int fts_reset_proc(struct fts_ts_data *ts_data, int hdelayms);
 
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+int fts_ts_suspend(struct device *dev);
 
-/* N17 code for HQ-299560 by zhangzhijian5 at 2023/8/16 start */
-int fts_reset_proc_extend(int hdelayms);
-/* N17 code for HQ-299560 by zhangzhijian5 at 2023/8/16 end */
+#if FTS_PSENSOR_EN
+int fts_proximity_init(void);
+int fts_proximity_exit(void);
+int fts_proximity_readdata(struct fts_ts_data *ts_data);
+int fts_proximity_suspend(void);
+int fts_proximity_resume(void);
+int fts_proximity_recovery(struct fts_ts_data *ts_data);
+#endif
 
-/* N17 code for HQ-306279 by liunianliang at 2023/07/07 start */
-extern int fts_init_lockdown_info(u8 *buf);
-extern int fts_ts_hw_info(struct fts_ts_data *ts_data);
-/* N17 code for HQ-306279 by liunianliang at 2023/07/07 end */
-
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 start */
-extern const char *tp_vendor;
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 end */
+extern int tp_gesture_flag;
 
 #endif /* __LINUX_FOCALTECH_CORE_H__ */

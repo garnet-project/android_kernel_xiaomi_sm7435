@@ -108,11 +108,6 @@
 
 #define FTS_APP_INFO_OFFSET 0x100
 
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 start */
-#define FTS_CSOT_PANLE_INDEX 0
-#define FTS_TianMa_PANLE_INDEX 1
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 end */
-
 enum FW_STATUS {
 	FTS_RUN_IN_ERROR,
 	FTS_RUN_IN_APP,
@@ -217,7 +212,7 @@ struct fts_upgrade {
 /*****************************************************************************
 * Global variable or extern global variabls/functions
 *****************************************************************************/
-extern struct upgrade_func upgrade_func_ft5008;
+extern struct upgrade_func upgrade_func_ft5662;
 
 /*****************************************************************************
 * Static function prototypes
@@ -228,8 +223,5 @@ int fts_fwupg_erase(u32 delay);
 int fts_fwupg_ecc_cal(u32 saddr, u32 len);
 int fts_flash_write_buf(u32 saddr, u8 *buf, u32 len, u32 delay);
 int fts_flash_read_buf(u32 saddr, u8 *buf, u32 len);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-int fts_flash_read(u32 addr, u8 *buf, u32 len);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 int fts_fwupg_upgrade(struct fts_upgrade *upg);
 #endif

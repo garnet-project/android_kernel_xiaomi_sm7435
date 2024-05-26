@@ -19,17 +19,17 @@
 *
 * File Name: focaltech_proximity.c
 *
-*    Author: Focaltech Driver Team
+* Author: Focaltech Driver Team
 *
-*   Created: 2016-09-19
+* Created: 2016-09-19
 *
-*  Abstract: close proximity function
+* Abstract: close proximity function
 *
-*   Version: v1.0
+* Version: v1.0
 *
 * Revision History:
 *        v1.0:
-*            First release based on xiaguobin's solution. By luougojin 2016-08-19
+*	    First release based on xiaguobin's solution. By luougojin 2016-08-19
 *****************************************************************************/
 
 /*****************************************************************************

@@ -199,7 +199,7 @@
 /*
  * choose your ic chip type of focaltech
  */
-#define FTS_CHIP_TYPE _FT3683G
+#define FTS_CHIP_TYPE _FT3681
 
 /******************* Enables *********************/
 /*********** 1 to enable, 0 to disable ***********/
@@ -208,9 +208,7 @@
  * show debug log info
  * enable it for debug, disable it for release
  */
-/* N17 code for HQ-305745 by zengqinghong1 at 2023/09/12 start */
-#define FTS_DEBUG_EN 0
-/* N17 code for HQ-305745 by zengqinghong1 at 2023/09/12 end */
+#define FTS_DEBUG_EN 1
 
 /*
  * Linux MultiTouch Protocol
@@ -222,15 +220,13 @@
  * Report Pressure in multitouch
  * 1:enable(default),0:disable
 */
-/* N17 code for HQ-291708 by gaoxue at 2023/5/31 start */
 #define FTS_REPORT_PRESSURE_EN 0
-/* N17 code for HQ-291708 by gaoxue at 2023/5/31 end */
 
 /*
  * Stylus PEN enable
  * 1:enable(default),0:disable
 */
-#define FTS_PEN_EN 0
+#define FTS_PEN_EN 1
 
 /*
  * Gesture function enable
@@ -238,13 +234,12 @@
  */
 #define FTS_GESTURE_EN 0
 
+#define FTS_FOD_EN 0
 /*
  * ESD check & protection
  * default: disable
  */
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#define FTS_ESDCHECK_EN 1
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+#define FTS_ESDCHECK_EN 0
 
 /*
  * Pinctrl enable
@@ -257,7 +252,7 @@
  * enable it when customer need control TP power
  * default: disable
  */
-#define FTS_POWER_SOURCE_CUST_EN 1
+#define FTS_POWER_SOURCE_CUST_EN 0
 
 /*
  * Proximity sensor(Only for MTK platform)
@@ -281,10 +276,7 @@
 /*
  * Numbers of modules support
  */
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-/* N17 code for HQ-299514 by jiangyue at 2023/6/25 start */
 #define FTS_GET_MODULE_NUM 2
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
 /*
  * module_id: mean vendor_id generally, also maybe gpio or lcm_id...
@@ -293,39 +285,34 @@
  * FTS_GET_MODULE_NUM >= 2, compatible with FTS_MODULE2_ID
  * FTS_GET_MODULE_NUM >= 3, compatible with FTS_MODULE3_ID
  */
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#define FTS_MODULE_ID 0xE0
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-#define FTS_MODULE2_ID 0x8D
+#define FTS_MODULE_ID 0x44
+#define FTS_MODULE2_ID 0xda
 #define FTS_MODULE3_ID 0x0000
-
 /*
  * Need set the following when get firmware via firmware_request()
  * For example: if module'vendor is tianma,
- * #define FTS_MODULE_NAME                        "tianma"
+ * #define FTS_MODULE_NAME			"tianma"
  * then file_name will be "focaltech_ts_fw_tianma"
  * You should rename fw to "focaltech_ts_fw_tianma", and push it into
  * etc/firmware or by customers
  */
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#define FTS_MODULE_NAME "CSOT"
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-#define FTS_MODULE2_NAME "TianMa"
+#define FTS_MODULE_NAME "vnx"
+#define FTS_MODULE2_NAME "boe"
 #define FTS_MODULE3_NAME ""
-/* N17 code for HQ-299514 by jiangyue at 2023/6/25 end */
 
 /*
  * FW.i file for auto upgrade, you must replace it with your own
  * define your own fw_file, the sample one to be replaced is invalid
  * NOTE: if FTS_GET_MODULE_NUM > 1, it's the fw corresponding with FTS_VENDOR_ID
  */
-#define FTS_UPGRADE_FW_FILE "include/firmware/fw_sample.i"
-
+#define FTS_UPGRADE_FW_FILE                                                    \
+	"include/firmware/VXN_FT368x_Ref_V2A_D05_20240204_app.i"
 /*
  * if FTS_GET_MODULE_NUM >= 2, fw corrsponding with FTS_VENDOR_ID2
  * define your own fw_file, the sample one is invalid
  */
-#define FTS_UPGRADE_FW2_FILE "include/firmware/fw_sample.i"
+#define FTS_UPGRADE_FW2_FILE                                                   \
+	"include/firmware/BOE_FT368x_Ref_V8A_D05_20240204_app.i"
 
 /*
  * if FTS_GET_MODULE_NUM >= 3, fw corrsponding with FTS_VENDOR_ID3

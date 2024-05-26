@@ -58,14 +58,12 @@
 
 #define FTS_MAX_CHIP_IDS 8
 
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
 #define FTS_CHIP_TYPE_MAPPING                                                  \
 	{                                                                      \
 		{                                                              \
-			0x90, 0x56, 0x72, 0x00, 0x00, 0x00, 0x00, 0x36, 0xB3   \
+			0x8A, 0x56, 0x62, 0x56, 0x62, 0x56, 0xE2, 0x00, 0x00   \
 		}                                                              \
 	}
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 
 #define FILE_NAME_LENGTH 128
 #define ENABLE 1
@@ -99,47 +97,21 @@
 #define FTS_REG_FACE_DEC_MODE_STATUS 0x01
 #define FTS_REG_IDE_PARA_VER_ID 0xB5
 #define FTS_REG_IDE_PARA_STATUS 0xB6
-/* N17 code for HQ-299560 by zhangzhijian5 at 2023/8/16 start */
-#define FTS_REG_IDE_PARA_STATUS_EN 0x01
-/* N17 code for HQ-299560 by zhangzhijian5 at 2023/8/16 end */
 #define FTS_REG_GLOVE_MODE_EN 0xC0
 #define FTS_REG_COVER_MODE_EN 0xC1
 #define FTS_REG_CHARGER_MODE_EN 0x8B
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#define FTS_REG_EARPHONE_MODE_EN 0xC3
-#define FTS_REG_EDGE_MODE_EN 0x8C // USB ports Right: 1, USB ports Left: 2
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 #define FTS_REG_GESTURE_EN 0xD0
 #define FTS_REG_GESTURE_OUTPUT_ADDRESS 0xD3
 #define FTS_REG_MODULE_ID 0xE3
 #define FTS_REG_LIC_VER 0xE4
 #define FTS_REG_ESD_SATURATE 0xED
+#define FTS_REG_FOD_EN 0xCF
+#define FTS_REG_FOD_VALUE 0x02
+#define FTS_REG_GAME_MODE_EN 0x8A
+#define FTS_REG_EDGE_MODE_EN 0x8C
+#define FTS_REG_FAST_DIFF_MODE 0x9E
 
-/* N17 code for HQ-290835 by liunianliang at 2023/6/12 start */
-#define FTS_PALM_EN 0x9a
-#define FTS_PALM_DATA 0x9b
-#define FTS_PALM_ON 0x05
-#define FTS_PALM_OFF 0x00
-#define FTS_PALM_KEYCODE 523
-/* N17 code for HQ-290835 by liunianliang at 2023/6/12 end */
-
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 start */
-#define FTS_REG_EDGE_FILTER_EN 0x8c
-#define FTS_REG_EDGE_FILTER_LEVEL 0x8d
-#define FTS_REG_GAMEMODE 0xC1
-#define FTS_REG_ORIENTATION 0x8C
-#define FTS_GESTURE_CTRL 0xD1
-#define FTS_GESTURE_DOUBLETAP 0x04
-#define FTS_GESTURE_AOD 0x07
-/* N17 code for HQ-299546 by liunianliang at 2023/6/13 end */
-
-/* N17 code for HQ-310258 by zhangzhijian5 at 2023/7/29 start */
-#define FTS_REG_HDLEMODE 0x8E
-/* N17 code for HQ-310258 by zhangzhijian5 at 2023/7/29 end */
-
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#define FTS_SYSFS_ECHO_ON(buf) (buf[0] == '1' || buf[0] == '2')
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+#define FTS_SYSFS_ECHO_ON(buf) ((buf[0] == '1') || (buf[0] == '2'))
 #define FTS_SYSFS_ECHO_OFF(buf) (buf[0] == '0')
 
 #define kfree_safe(pbuf)                                                       \
@@ -149,6 +121,10 @@
 			pbuf = NULL;                                           \
 		}                                                              \
 	} while (0)
+
+#define INTERVAL_READ_REG 200 /* unit:ms */
+#define INTERVAL_READ_REG_RESUME 50 /* unit:ms */
+#define TIMEOUT_READ_REG 1000 /* unit:ms */
 
 /*****************************************************************************
 *  Alternative mode (When something goes wrong, the modules may be able to solve the problem.)

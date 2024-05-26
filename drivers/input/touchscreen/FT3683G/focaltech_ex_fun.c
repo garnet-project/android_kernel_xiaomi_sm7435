@@ -81,7 +81,7 @@ static struct rwreg_operation_t {
 /*****************************************************************************
 * Global variable or extern global variabls/functions
 *****************************************************************************/
-
+u8 fts_charger_mode = DISABLE;
 /*****************************************************************************
 * Static function prototypes
 *****************************************************************************/
@@ -185,7 +185,7 @@ static ssize_t fts_debug_write(struct file *filp, const char __user *buff,
 			tmp[buflen - 1] = '\0';
 			if (strncmp(tmp, "focal_driver", 12) == 0) {
 				FTS_INFO("APK execute HW Reset");
-				fts_reset_proc(0);
+				fts_reset_proc(ts_data, 0);
 			}
 		}
 		break;
@@ -400,7 +400,65 @@ static ssize_t fts_ta_read(struct file *filp, char __user *buff, size_t count,
 
 	return read_num;
 }
+static int fts_charger_mode_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "TP Charger flag:%d\n", fts_charger_mode);
+	return 0;
+}
+static int fts_charger_mode_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, &fts_charger_mode_show, inode->i_private);
+}
+static ssize_t fts_charger_mode_write(struct file *filp,
+				      const char __user *buff, size_t count,
+				      loff_t *ppos)
+{
+	u8 writebuf[PROC_BUF_SIZE] = { 0 };
+	int buflen = count;
+	int ret = 0;
+	struct fts_ts_data *ts_data = PDE_DATA(file_inode(filp));
+	struct ftxxxx_proc *proc = &ts_data->proc_charger;
+	if ((buflen < 1) || (buflen > PROC_BUF_SIZE)) {
+		FTS_ERROR("charge mode count(%d) fail", buflen);
+		return -EINVAL;
+	}
 
+	if (copy_from_user(writebuf, buff, buflen)) {
+		FTS_ERROR("charge mode: copy from user error!!");
+		return -EFAULT;
+	}
+
+	proc->opmode = writebuf[0];
+	switch (proc->opmode) {
+	case '2':
+	case '3':
+	case '4':
+		FTS_DEBUG("enter charger mode");
+		ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, ENABLE);
+		if (ret < 0) {
+			FTS_ERROR("MODE_CHARGER ENABLE fail:%d", ret);
+			return -EFAULT;
+		} else {
+			fts_charger_mode = ENABLE;
+		}
+		break;
+	case '0':
+		FTS_DEBUG("exit charger mode");
+		ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, DISABLE);
+		if (ret < 0) {
+			FTS_ERROR("MODE_CHARGER DISABLE fail:%d", ret);
+			return -EFAULT;
+		} else {
+			fts_charger_mode = DISABLE;
+		}
+		break;
+	default:
+		FTS_ERROR("invalid charge mode: %d", proc->opmode);
+		break;
+	}
+	FTS_DEBUG("charger mode:%d", fts_charger_mode);
+	return buflen;
+}
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
 static const struct proc_ops fts_proc_fops = {
 	.proc_read = fts_debug_read,
@@ -425,7 +483,11 @@ static const struct file_operations fts_procta_fops = {
 	.read = fts_ta_read,
 };
 #endif
-
+static const struct proc_ops fts_charger_fops = {
+	.proc_open = fts_charger_mode_open,
+	.proc_write = fts_charger_mode_write,
+	.proc_read = seq_read,
+};
 int fts_create_apk_debug_channel(struct fts_ts_data *ts_data)
 {
 	struct ftxxxx_proc *proc = &ts_data->proc;
@@ -442,7 +504,12 @@ int fts_create_apk_debug_channel(struct fts_ts_data *ts_data)
 		FTS_ERROR("create proc_ta entry fail");
 		return -ENOMEM;
 	}
-
+	ts_data->proc_charger.proc_entry = proc_create_data(
+		"TP_charger_flags", 0777, NULL, &fts_charger_fops, ts_data);
+	if (!ts_data->proc_charger.proc_entry) {
+		FTS_ERROR("create proc_charger entry fail");
+		return -ENOMEM;
+	}
 	FTS_INFO("Create proc entry success!");
 	return 0;
 }
@@ -454,6 +521,8 @@ void fts_release_apk_debug_channel(struct fts_ts_data *ts_data)
 		proc_remove(ts_data->proc.proc_entry);
 	if (ts_data->proc_ta.proc_entry)
 		proc_remove(ts_data->proc_ta.proc_entry);
+	if (ts_data->proc_charger.proc_entry)
+		proc_remove(ts_data->proc_charger.proc_entry);
 	FTS_FUNC_EXIT();
 }
 
@@ -469,7 +538,7 @@ static ssize_t fts_hw_reset_show(struct device *dev,
 	ssize_t count = 0;
 
 	mutex_lock(&input_dev->mutex);
-	fts_reset_proc(0);
+	fts_reset_proc(ts_data, 0);
 	count = snprintf(buf, PAGE_SIZE, "hw reset executed\n");
 	mutex_unlock(&input_dev->mutex);
 
@@ -669,9 +738,9 @@ static ssize_t fts_tprwreg_show(struct device *dev,
 			}
 		}
 		/*if (rw_op.opbuf) {
-            kfree(rw_op.opbuf);
-            rw_op.opbuf = NULL;
-        }*/
+			kfree(rw_op.opbuf);
+			rw_op.opbuf = NULL;
+		}*/
 	}
 	mutex_unlock(&input_dev->mutex);
 
@@ -1170,28 +1239,182 @@ static ssize_t fts_tamode_store(struct device *dev,
 	return count;
 }
 
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-static ssize_t fts_lockdown_show(struct device *dev,
-				 struct device_attribute *attr, char *buf)
+static ssize_t fts_fod_show(struct device *dev, struct device_attribute *attr,
+			    char *buf)
 {
 	int count = 0;
+	u8 val = 0;
 	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
-	struct input_dev *input_dev = ts_data->input_dev;
-	u8 lockdown_info[256] = { 0 };
-
-	mutex_lock(&input_dev->mutex);
-	fts_esdcheck_switch(ts_data, DISABLE);
-
-	fts_read_lockdown_info(lockdown_info);
-
-	fts_esdcheck_switch(ts_data, ENABLE);
-	count += snprintf(buf + count, PAGE_SIZE, "lockdown info:%s\n",
-			  lockdown_info);
-	mutex_unlock(&input_dev->mutex);
-
+	mutex_lock(&ts_data->input_dev->mutex);
+	fts_read_reg(FTS_REG_FOD_EN, &val);
+	count = snprintf(buf, PAGE_SIZE, "Fod Mode:%s\n",
+			 ts_data->fod_support ? "On" : "Off");
+	count += snprintf(buf + count, PAGE_SIZE, "Reg(0xCF)=%d\n", val);
+	mutex_unlock(&ts_data->input_dev->mutex);
 	return count;
 }
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+static ssize_t fts_fod_store(struct device *dev, struct device_attribute *attr,
+			     const char *buf, size_t count)
+{
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	mutex_lock(&ts_data->input_dev->mutex);
+	if (FTS_SYSFS_ECHO_ON(buf)) {
+		FTS_DEBUG("enable fod");
+		ts_data->fod_support = ENABLE;
+		tp_gesture_flag = ENABLE;
+	} else if (FTS_SYSFS_ECHO_OFF(buf)) {
+		FTS_DEBUG("disable fod");
+		ts_data->fod_support = DISABLE;
+		if (ts_data->gesture_support == DISABLE)
+			tp_gesture_flag = DISABLE;
+	}
+	mutex_unlock(&ts_data->input_dev->mutex);
+	return count;
+}
+static ssize_t fts_vendor_id_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	int count = 0;
+	u8 val = 0;
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	mutex_lock(&ts_data->input_dev->mutex);
+	fts_read_reg(FTS_REG_VENDOR_ID, &val);
+	count += snprintf(buf + count, PAGE_SIZE, "%d", val);
+	mutex_unlock(&ts_data->input_dev->mutex);
+	return count;
+}
+static u8 temp_count = 0xFF;
+static void fts_diff_get_data(u8 *all_data_buf, int buf_len)
+{
+	u8 cmd = 0x01;
+	int cnt = 0;
+	int ret = 0;
+
+	do {
+		ret = fts_read(&cmd, 1, all_data_buf, buf_len);
+		if (ret < 0) {
+			FTS_ERROR("diff_data_buf[0](%x) abnormal,ret:%d",
+				  all_data_buf[0], ret);
+		}
+		if ((temp_count != all_data_buf[90]) &&
+		    (all_data_buf[90] != 0xFF)) {
+			temp_count = all_data_buf[90];
+			break;
+		}
+		FTS_ERROR("diff_count: %d  temp_count:%d cnt:%d",
+			  all_data_buf[90], temp_count, cnt);
+		memset(all_data_buf, 0, buf_len);
+		cnt++;
+		msleep(INTERVAL_READ_REG);
+	} while ((cnt * INTERVAL_READ_REG) < TIMEOUT_READ_REG);
+}
+
+static int fts_diff_data_output(char *buf, u8 *all_data_buf)
+{
+	int i = 0;
+	int j = 0;
+	int count = 0;
+	short diff_data[FTS_DIFF_DATA_LEN / 2] = { 0 };
+
+	for (i = 91; i < FTS_DATA_WITH_DIFF_LEN; i = i + 2) {
+		diff_data[j++] = (all_data_buf[i] << 8) + (all_data_buf[i + 1]);
+	}
+	count += snprintf(buf + count, PAGE_SIZE, "Diff count:%d\n",
+			  all_data_buf[90]);
+	for (j = 0; j < FTS_TX_MAX; j++) {
+		for (i = 0; i < FTS_RX_MAX; i++) {
+			count += snprintf(buf + count, PAGE_SIZE, "%4d ",
+					  diff_data[j * FTS_RX_MAX + i]);
+		}
+		count += snprintf(buf + count, PAGE_SIZE, "\n");
+	}
+	for (j = FTS_TX_MAX * FTS_RX_MAX; j < FTS_DIFF_DATA_LEN / 2; j++) {
+		if ((count + 7) >= (FTS_MAX_TOUCH_BUF - 1)) {
+			FTS_ERROR("reach max index %d ", count);
+			return count;
+		}
+		count += snprintf(buf + count, PAGE_SIZE, "%4d ", diff_data[j]);
+		if ((j == (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX - 1)) ||
+		    (j ==
+		     (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX + FTS_TX_MAX - 1)) ||
+		    (j == (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX + FTS_TX_MAX +
+			   11 - 1)) ||
+		    (j == (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX + FTS_TX_MAX +
+			   11 + FTS_RX_MAX - 1)) ||
+		    (j == (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX + FTS_TX_MAX +
+			   11 + FTS_RX_MAX + FTS_TX_MAX - 1)) ||
+		    (j == (FTS_TX_MAX * FTS_RX_MAX + FTS_RX_MAX + FTS_TX_MAX +
+			   11 + FTS_RX_MAX + FTS_TX_MAX + 11 - 1))) {
+			count += snprintf(buf + count, PAGE_SIZE, "\n");
+		}
+	}
+	return count;
+}
+
+static ssize_t fts_diff_data_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	int count = 0;
+	u8 *all_data_buf = NULL;
+
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	if (ts_data->suspended) {
+		FTS_ERROR("suspend mode cannot show diff data");
+		return 0;
+	}
+	mutex_lock(&ts_data->input_dev->mutex);
+	all_data_buf = (u8 *)kzalloc((FTS_DATA_WITH_DIFF_LEN) * sizeof(u8),
+				     GFP_KERNEL);
+	if (all_data_buf == NULL) {
+		FTS_ERROR("all_data_buf alloc fail");
+		mutex_unlock(&ts_data->input_dev->mutex);
+		return 0;
+	}
+	memset(all_data_buf, 0, (FTS_DATA_WITH_DIFF_LEN));
+	fts_diff_get_data(all_data_buf, FTS_DATA_WITH_DIFF_LEN);
+	count = fts_diff_data_output(buf, all_data_buf);
+	mutex_unlock(&ts_data->input_dev->mutex);
+	kfree_safe(all_data_buf);
+	return count;
+}
+static ssize_t fts_fast_diff_mode_store(struct device *dev,
+					struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	struct input_dev *input_dev = ts_data->input_dev;
+	int ret = 0;
+	FTS_FUNC_ENTER();
+	mutex_lock(&input_dev->mutex);
+	if (FTS_SYSFS_ECHO_ON(buf)) {
+		ret = fts_write_reg(FTS_REG_FAST_DIFF_MODE, ENABLE);
+		if (ret < 0) {
+			FTS_ERROR("diff_data switch to fast mod %d fail", ret);
+		}
+	} else if (FTS_SYSFS_ECHO_OFF(buf)) {
+		ret = fts_write_reg(FTS_REG_FAST_DIFF_MODE, DISABLE);
+		if (ret < 0) {
+			FTS_ERROR("diff_data switch to fast mod %d fail", ret);
+		}
+	}
+	mutex_unlock(&input_dev->mutex);
+	FTS_FUNC_EXIT();
+	return count;
+}
+
+static ssize_t fts_fast_diff_mode_show(struct device *dev,
+				       struct device_attribute *attr, char *buf)
+{
+	int count = 0;
+	u8 val = 0;
+	struct fts_ts_data *ts_data = dev_get_drvdata(dev);
+	mutex_lock(&ts_data->input_dev->mutex);
+	fts_read_reg(FTS_REG_FAST_DIFF_MODE, &val);
+	count = snprintf(buf, PAGE_SIZE, "Fast diff Mode:\n");
+	count += snprintf(buf + count, PAGE_SIZE, "Reg(0x9E)=%d\n", val);
+	mutex_unlock(&ts_data->input_dev->mutex);
+	return count;
+}
 
 /* get the fw version  example:cat fw_version */
 static DEVICE_ATTR(fts_fw_version, S_IRUGO | S_IWUSR, fts_tpfwver_show,
@@ -1200,15 +1423,15 @@ static DEVICE_ATTR(fts_fw_version, S_IRUGO | S_IWUSR, fts_tpfwver_show,
 /* read and write register(s)
 *   All data type is **HEX**
 *   Single Byte:
-*       read:   echo 88 > rw_reg ---read register 0x88
-*       write:  echo 8807 > rw_reg ---write 0x07 into register 0x88
+*      read:   echo 88 > rw_reg ---read register 0x88
+*      write:  echo 8807 > rw_reg ---write 0x07 into register 0x88
 *   Multi-bytes:
-*       [0:rw-flag][1-2: reg addr, hex][3-4: length, hex][5-6...n-n+1: write data, hex]
-*       rw-flag: 0, write; 1, read
-*       read:  echo 10005           > rw_reg ---read reg 0x00-0x05
-*       write: echo 000050102030405 > rw_reg ---write reg 0x00-0x05 as 01,02,03,04,05
+*      [0:rw-flag][1-2: reg addr, hex][3-4: length, hex][5-6...n-n+1: write data, hex]
+*      rw-flag: 0, write; 1, read
+*      read:  echo 10005		   > rw_reg ---read reg 0x00-0x05
+*      write: echo 000050102030405 > rw_reg ---write reg 0x00-0x05 as 01,02,03,04,05
 *  Get result:
-*       cat rw_reg
+*      cat rw_reg
 */
 static DEVICE_ATTR(fts_rw_reg, S_IRUGO | S_IWUSR, fts_tprwreg_show,
 		   fts_tprwreg_store);
@@ -1235,25 +1458,33 @@ static DEVICE_ATTR(fts_touch_size, S_IRUGO | S_IWUSR, fts_touchsize_show,
 		   fts_touchsize_store);
 static DEVICE_ATTR(fts_ta_mode, S_IRUGO | S_IWUSR, fts_tamode_show,
 		   fts_tamode_store);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-static DEVICE_ATTR(fts_lockdown_info, S_IRUGO | S_IWUSR, fts_lockdown_show,
-		   NULL);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
+static DEVICE_ATTR(fts_fod_mode, S_IRUGO | S_IWUSR, fts_fod_show,
+		   fts_fod_store);
+static DEVICE_ATTR(fts_vendor_id, S_IRUGO | S_IWUSR, fts_vendor_id_show, NULL);
+static DEVICE_ATTR(fts_diff_data, S_IRUGO | S_IWUSR, fts_diff_data_show, NULL);
+static DEVICE_ATTR(fts_fast_diff_mode, S_IRUGO | S_IWUSR,
+		   fts_fast_diff_mode_show, fts_fast_diff_mode_store);
 
 /* add your attr in here*/
-static struct attribute *fts_attributes[] = {
-	&dev_attr_fts_fw_version.attr, &dev_attr_fts_rw_reg.attr,
-	&dev_attr_fts_dump_reg.attr, &dev_attr_fts_upgrade_bin.attr,
-	&dev_attr_fts_force_upgrade.attr, &dev_attr_fts_driver_info.attr,
-	&dev_attr_fts_hw_reset.attr, &dev_attr_fts_irq.attr,
-	&dev_attr_fts_boot_mode.attr, &dev_attr_fts_touch_point.attr,
-	&dev_attr_fts_log_level.attr, &dev_attr_fts_pen.attr,
-	&dev_attr_fts_touch_size.attr, &dev_attr_fts_ta_mode.attr,
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-	&dev_attr_fts_lockdown_info.attr,
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-	NULL
-};
+static struct attribute *fts_attributes[] = { &dev_attr_fts_fw_version.attr,
+					      &dev_attr_fts_rw_reg.attr,
+					      &dev_attr_fts_dump_reg.attr,
+					      &dev_attr_fts_upgrade_bin.attr,
+					      &dev_attr_fts_force_upgrade.attr,
+					      &dev_attr_fts_driver_info.attr,
+					      &dev_attr_fts_hw_reset.attr,
+					      &dev_attr_fts_irq.attr,
+					      &dev_attr_fts_boot_mode.attr,
+					      &dev_attr_fts_touch_point.attr,
+					      &dev_attr_fts_log_level.attr,
+					      &dev_attr_fts_pen.attr,
+					      &dev_attr_fts_touch_size.attr,
+					      &dev_attr_fts_ta_mode.attr,
+					      &dev_attr_fts_fod_mode.attr,
+					      &dev_attr_fts_vendor_id.attr,
+					      &dev_attr_fts_diff_data.attr,
+					      &dev_attr_fts_fast_diff_mode.attr,
+					      NULL };
 
 static struct attribute_group fts_attribute_group = { .attrs = fts_attributes };
 
@@ -1278,195 +1509,3 @@ int fts_remove_sysfs(struct fts_ts_data *ts_data)
 	sysfs_remove_group(&ts_data->dev->kobj, &fts_attribute_group);
 	return 0;
 }
-
-/*****************************************************************************/
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-#include <linux/hqsysfs.h>
-struct proc_dir_entry *tp_lockdown_info_proc;
-struct proc_dir_entry *tp_info_proc;
-struct proc_dir_entry *tp_data_dump_proc;
-struct proc_dir_entry *tp_android_touch_proc;
-struct proc_dir_entry *tp_ito_test_proc;
-
-//-----------------/proc/tp_lockdown_info begin-------------------
-static int fts_lockdown_info_show(struct seq_file *m, void *v)
-{
-	struct fts_ts_data *ts_data = fts_data;
-	struct input_dev *input_dev = ts_data->input_dev;
-	u8 lockdown_info[256] = { 0 };
-
-	mutex_lock(&input_dev->mutex);
-	fts_esdcheck_switch(ts_data, DISABLE);
-	fts_read_lockdown_info(lockdown_info);
-	fts_esdcheck_switch(ts_data, ENABLE);
-	mutex_unlock(&input_dev->mutex);
-
-	seq_printf(m, "%s\n", lockdown_info);
-
-	return 0;
-}
-
-static int fts_lockdown_info_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, fts_lockdown_info_show, NULL);
-}
-
-static const struct proc_ops fts_lockdown_info_ops = {
-	.proc_open = fts_lockdown_info_open,
-	.proc_read = seq_read,
-	.proc_lseek = seq_lseek,
-	.proc_release = single_release,
-};
-//-----------------/proc/tp_lockdown_info end---------------------
-
-//-------------------/proc/tp_info begin-----------------
-static int fts_tp_info_show(struct seq_file *m, void *v)
-{
-	int ret = 0;
-	u8 fwver = 0, vid = 0;
-	static char buf[256] = "";
-	struct fts_ts_data *ts_data = fts_data;
-	struct input_dev *input_dev = ts_data->input_dev;
-
-	mutex_lock(&input_dev->mutex);
-
-	ret = fts_read_reg(FTS_REG_FW_VER, &fwver);
-	fts_read_reg(FTS_REG_VENDOR_ID, &vid);
-	if ((ret < 0) || (fwver == 0xFF) || (fwver == 0x00))
-		snprintf(buf, sizeof(buf),
-			 "get tp info fail, please resume TP!");
-	else
-		snprintf(buf, sizeof(buf),
-			 "[Vendor]:%s [TP-IC]:FT3683G [FW]:0x%02x [VID]:0x%02x",
-			 ts_data->vendor, fwver, vid);
-
-	mutex_unlock(&input_dev->mutex);
-
-	buf[strlen(buf) + 1] = '\0';
-
-	seq_printf(m, "%s\n", buf);
-	return 0;
-}
-
-static int fts_tp_info_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, fts_tp_info_show, NULL);
-}
-
-static const struct proc_ops fts_tp_info_ops = {
-	.proc_open = fts_tp_info_open,
-	.proc_read = seq_read,
-	.proc_lseek = seq_lseek,
-	.proc_release = single_release,
-};
-//-------------------/proc/tp_info end-------------------
-
-//---sys/devices/virtual/huaqin/interface/hw_info/ctp begin---
-int fts_ts_hw_info(struct fts_ts_data *ts_data)
-{
-	int ret = 0;
-	u8 fwver = 0;
-	static char buf[64] = "";
-	struct input_dev *input_dev = ts_data->input_dev;
-
-	mutex_lock(&input_dev->mutex);
-
-	ret = fts_read_reg(FTS_REG_FW_VER, &fwver);
-	if ((ret < 0) || (fwver == 0xFF) || (fwver == 0x00))
-		snprintf(buf, sizeof(buf), "get tp hw info fail!");
-	else
-		snprintf(buf, sizeof(buf),
-			 "[Vendor]:%s [TP-IC]:FT3683G [FW]:0x%02x",
-			 ts_data->vendor, fwver);
-
-	mutex_unlock(&input_dev->mutex);
-
-	buf[strlen(buf) + 1] = '\0';
-	FTS_INFO("hw_info: %s", buf);
-	hq_regiser_hw_info(HWID_CTP, buf);
-
-	return 0;
-}
-//---sys/devices/virtual/huaqin/interface/hw_info/ctp end---
-
-int fts_create_procfs(struct fts_ts_data *ts_data)
-{
-	int ret = 0;
-
-	/* create /proc/tp_lockdown_info */
-	tp_lockdown_info_proc = proc_create("tp_lockdown_info", 0664, NULL,
-					    &fts_lockdown_info_ops);
-	if (!tp_lockdown_info_proc) {
-		FTS_ERROR("Failed to create tp_lockdown_info_proc");
-		return -EINVAL;
-	} else {
-		FTS_INFO("Sucess to creat /proc/tp_lockdown_info");
-	}
-
-	/* create /proc/tp_info */
-	tp_info_proc = proc_create("tp_info", 0664, NULL, &fts_tp_info_ops);
-	if (!tp_info_proc) {
-		FTS_ERROR("Failed to create tp_info_proc");
-		return -EINVAL;
-	} else {
-		FTS_INFO("Sucess to creat /proc/tp_info");
-	}
-
-	/* create /proc/tp_data_dump */
-	lct_tp_data_dump_p = (struct lct_tp_data_dump *)kzalloc(
-		sizeof(struct lct_tp_data_dump), GFP_KERNEL);
-	if (IS_ERR_OR_NULL(lct_tp_data_dump_p)) {
-		FTS_ERROR("malloc lct_tp_data_dump memory fail");
-		lct_tp_data_dump_p = NULL;
-		return -ENOMEM;
-	}
-
-	tp_data_dump_proc =
-		proc_create("tp_data_dump", 0664, NULL, &fts_tp_data_dump_ops);
-	if (!tp_data_dump_proc) {
-		FTS_ERROR("Failed to create tp_data_dump_proc");
-		return -EINVAL;
-	} else {
-		FTS_INFO("Sucess to creat /proc/tp_data_dump");
-	}
-
-	/* create /proc/android_touch/self_test */
-	tp_android_touch_proc = proc_mkdir("android_touch", NULL);
-	tp_ito_test_proc = proc_create("self_test", 0664, tp_android_touch_proc,
-				       &fts_ito_test_ops);
-	if (!tp_ito_test_proc) {
-		FTS_ERROR("Failed to create android_touch/self_test proc");
-		return -EINVAL;
-	} else {
-		FTS_INFO("Sucess to creat android_touch/self_test proc");
-	}
-
-	return ret;
-}
-
-int fts_remove_procfs(struct fts_ts_data *ts_data)
-{
-	if (tp_lockdown_info_proc) {
-		remove_proc_entry("tp_lockdown_info", NULL);
-		tp_lockdown_info_proc = NULL;
-	}
-
-	if (tp_info_proc) {
-		remove_proc_entry("tp_info", NULL);
-		tp_info_proc = NULL;
-	}
-
-	if (tp_data_dump_proc) {
-		remove_proc_entry("tp_data_dump", NULL);
-		tp_data_dump_proc = NULL;
-	}
-
-	if (tp_ito_test_proc) {
-		remove_proc_subtree("android_touch", NULL);
-		tp_data_dump_proc = NULL;
-		tp_android_touch_proc = NULL;
-	}
-	return 0;
-}
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-/*****************************************************************************/

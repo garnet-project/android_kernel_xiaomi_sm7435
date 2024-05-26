@@ -19,13 +19,13 @@
 *
 * File Name: focaltech_spi.c
 *
-*    Author: FocalTech Driver Team
+* Author: FocalTech Driver Team
 *
-*   Created: 2019-03-21
+* Created: 2019-03-21
 *
-*  Abstract: new spi protocol communication with TP
+* Abstract: new spi protocol communication with TP
 *
-*   Version: v2.0
+* Version: v2.0
 *
 * Revision History:
 *
@@ -55,9 +55,6 @@
 /*****************************************************************************
 * Static variables
 *****************************************************************************/
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 start */
-const char *tp_vendor = NULL;
-/* N17 code for HQ-310974 by xionglei6 at 2023/08/14 end */
 
 /*****************************************************************************
 * Global variable or extern global variabls/functions
@@ -449,10 +446,9 @@ static int fts_ts_probe(struct spi_device *spi)
 	int ret = 0;
 	struct fts_ts_data *ts_data = NULL;
 
-	FTS_INFO("Touch Screen(SPI-2 BUS) driver prboe...");
+	FTS_INFO("Touch Screen(SPI-2 BUS) driver probe...");
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
-	spi->chip_select = 0; // it's important
 	ret = spi_setup(spi);
 	if (ret < 0) {
 		FTS_ERROR("spi setup fail");
@@ -472,10 +468,6 @@ static int fts_ts_probe(struct spi_device *spi)
 	ts_data->bus_type = BUS_TYPE_SPI;
 	ts_data->bus_ver = BUS_VER_V2;
 	ts_data->dummy_byte = SPI_DUMMY_BYTE;
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-	snprintf(ts_data->vendor, 32, tp_vendor);
-	/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
-
 	spi_set_drvdata(spi, ts_data);
 
 	ret = fts_ts_probe_entry(ts_data);
@@ -486,7 +478,7 @@ static int fts_ts_probe(struct spi_device *spi)
 		return ret;
 	}
 
-	FTS_INFO("Touch Screen(SPI BUS) driver prboe successfully");
+	FTS_INFO("Touch Screen(SPI BUS) driver probe successfully");
 	return 0;
 }
 
@@ -543,92 +535,22 @@ static const struct of_device_id fts_dt_match[] = {
 MODULE_DEVICE_TABLE(of, fts_dt_match);
 
 static struct spi_driver fts_ts_spi_driver = {
-    .probe = fts_ts_probe,
-    .remove = fts_ts_remove,
-    .driver = {
-        .name = FTS_DRIVER_NAME,
-        .owner = THIS_MODULE,
+	.probe = fts_ts_probe,
+	.remove = fts_ts_remove,
+	.driver = {
+		.name = FTS_DRIVER_NAME,
+		.owner = THIS_MODULE,
 #if IS_ENABLED(CONFIG_PM) && FTS_PATCH_COMERR_PM
-        .pm = &fts_dev_pm_ops,
+		.pm = &fts_dev_pm_ops,
 #endif
-        .of_match_table = of_match_ptr(fts_dt_match),
-    },
-    .id_table = fts_ts_id,
-};
-
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 start */
-static int skip_load = 0;
-module_param(skip_load, int, S_IRUSR);
-
-static int force_load = 0;
-module_param(force_load, int, S_IRUSR);
-
-struct tag_videolfb {
-	u64 fb_base;
-	u32 islcmfound;
-	u32 fps;
-	u32 vram;
-	char lcmname[1];
-};
-
-struct tag_bootmode {
-	u32 size;
-	u32 tag;
-	u32 bootmode;
-	u32 boottype;
+		.of_match_table = of_match_ptr(fts_dt_match),
+	},
+	.id_table = fts_ts_id,
 };
 
 static int __init fts_ts_spi_init(void)
 {
 	int ret = 0;
-
-	struct device_node *lcm_name;
-	struct tag_videolfb *videolfb_tag = NULL;
-	struct tag_bootmode *tag_boot = NULL;
-	unsigned long size = 0;
-
-	/* for debug, you can use: 'insmod focaltech_tp.ko skip_load=1' */
-	if (skip_load) {
-		FTS_ERROR("get a skip flag, don't load focaltech_tp ko!");
-		return 0;
-	}
-
-	if (force_load)
-		goto force_load_ko;
-
-	lcm_name = of_find_node_by_path("/chosen");
-
-	if (lcm_name) {
-		tag_boot = (struct tag_bootmode *)of_get_property(
-			lcm_name, "atag,boot", NULL);
-		if (tag_boot &&
-		    (tag_boot->bootmode == 8 || tag_boot->bootmode == 9)) {
-			FTS_ERROR("in kpoc mode, don't load focaltech_tp ko!");
-			return 0;
-		}
-
-		videolfb_tag = (struct tag_videolfb *)of_get_property(
-			lcm_name, "atag,videolfb", (int *)&size);
-		if (!videolfb_tag) {
-			FTS_ERROR("Invalid lcm name!!!");
-			return 0;
-		}
-		FTS_ERROR("fts_ts_spi_init read lcm name : %s",
-			  videolfb_tag->lcmname);
-		if (strcmp("n17_36_02_0a_dsc_vdo_lcm_drv",
-			   videolfb_tag->lcmname) == 0) {
-			FTS_ERROR("not focaltech tp!!!");
-			return 0;
-		} else if (strcmp("n17_42_0d_0b_dsc_vdo_lcm_drv",
-				  videolfb_tag->lcmname) == 0) {
-			tp_vendor = FTS_MODULE_NAME;
-		} else {
-			tp_vendor = FTS_MODULE2_NAME;
-		}
-		FTS_INFO("focaltech tp, vendor is %s !!!", tp_vendor);
-	}
-
-force_load_ko:
 
 	FTS_FUNC_ENTER();
 	ret = spi_register_driver(&fts_ts_spi_driver);
@@ -644,8 +566,6 @@ static void __exit fts_ts_spi_exit(void)
 	spi_unregister_driver(&fts_ts_spi_driver);
 }
 
-MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
-/* N17 code for HQ-291087 by liunianliang at 2023/5/29 end */
 module_init(fts_ts_spi_init);
 module_exit(fts_ts_spi_exit);
 

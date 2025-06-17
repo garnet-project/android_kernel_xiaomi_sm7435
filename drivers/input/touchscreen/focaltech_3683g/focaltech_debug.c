@@ -1106,7 +1106,7 @@ int fts_fwdbg_irq_handler(struct fts_ts_data *ts_data)
 #endif
 
 #if FTS_FOD_EN
-	if (ts_data->fod_mode) {
+	if (ts_data->pdata->fod_status) {
 		fts_read_reg(FTS_REG_FOD_MODE_EN, &fod_state);
 		if (fod_state == FTS_VAL_FOD_ENABLE) {
 			if (fts_fod_readdata(ts_data) ==

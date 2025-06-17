@@ -571,9 +571,9 @@ void fts_fod_enable(int enable)
 	struct fts_ts_data *ts_data = fts_data;
 
 	ts_data->fod_fp_down = false;
-	ts_data->fod_mode = enable;
+	ts_data->pdata->fod_status = enable;
 	if (enable == FTS_FOD_ENABLE) {
-		FTS_INFO("Fod enable,fod_mode = %d\n", ts_data->fod_mode);
+		FTS_INFO("Fod enable,fod_mode = %d\n", ts_data->pdata->fod_status);
 		fts_fod_set_reg(FTS_VAL_FOD_ENABLE);
 	} else if (enable == FTS_FOD_DISABLE) {
 		FTS_INFO("Fod disable\n");
@@ -582,7 +582,7 @@ void fts_fod_enable(int enable)
 		FTS_INFO("Fod unlock\n");
 	} else if (enable == 3) {
 		FTS_INFO("disable fod but not power off,fod_mode = %d\n",
-			 ts_data->fod_mode);
+			 ts_data->pdata->fod_status);
 		fts_fod_set_reg(DISABLE);
 	} else {
 		FTS_INFO("wrong val\n");
@@ -647,7 +647,7 @@ int fts_fod_readdata(struct fts_ts_data *ts_data)
 
 static int fts_fod_recovery(struct fts_ts_data *ts_data)
 {
-	if (ts_data->fod_mode) {
+	if (ts_data->pdata->fod_status) {
 		fts_fod_set_reg(FTS_VAL_FOD_ENABLE);
 	}
 	return 0;
@@ -664,7 +664,7 @@ static int fts_fod_recovery(struct fts_ts_data *ts_data)
 *****************************************************************************/
 static int fts_fod_checkdown(struct fts_ts_data *ts_data)
 {
-	return (ts_data->fod_mode && ts_data->fod_fp_down);
+	return (ts_data->pdata->fod_status && ts_data->fod_fp_down);
 }
 
 __attribute__((unused)) static int fts_fod_suspend(struct fts_ts_data *ts_data)
@@ -694,7 +694,7 @@ void fts_fod_report_key(struct fts_ts_data *ts_data)
 		input_report_key(ts_data->input_dev, KEY_GESTURE_FOD, 0);
 		input_sync(ts_data->input_dev);
 		FTS_DEBUG("KEY_GESTURE_FOD, 0\n");
-		if (ts_data->fod_mode == FTS_FOD_UNLOCK) {
+		if (ts_data->pdata->fod_status == FTS_FOD_UNLOCK) {
 			fts_fod_set_reg(DISABLE);
 		}
 	}
@@ -1346,7 +1346,7 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 #endif
 
 #if FTS_FOD_EN
-	if (ts_data->fod_mode) {
+	if (ts_data->pdata->fod_status) {
 		fts_read_reg(FTS_REG_FOD_MODE_EN, &fod_state);
 		if (fod_state == FTS_VAL_FOD_ENABLE) {
 			if (fts_fod_readdata(ts_data) ==
@@ -2233,7 +2233,7 @@ static int fts_ts_suspend(struct device *dev)
 	}
 #endif
 
-	if (ts_data->gesture_support || ts_data->fod_mode) {
+	if (ts_data->gesture_support || ts_data->pdata->fod_status) {
 		fts_gesture_suspend(ts_data);
 		ts_data->need_work_in_suspend = true;
 	}
@@ -2304,7 +2304,7 @@ static int fts_ts_resume(struct device *dev)
 	}
 
 	fts_enter_normal_fw();
-	if (ts_data->gesture_support || ts_data->fod_mode) {
+	if (ts_data->gesture_support || ts_data->pdata->fod_status) {
 		fts_gesture_resume(ts_data);
 	}
 

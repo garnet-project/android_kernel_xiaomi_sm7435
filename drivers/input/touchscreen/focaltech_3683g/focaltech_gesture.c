@@ -436,7 +436,7 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
 				break;
 		}
 	}
-	if ((ts_data->fod_mode) && (ts_data->fod_mode != 3)) {
+	if ((ts_data->pdata->fod_status) && (ts_data->pdata->fod_status != 3)) {
 		fts_write_reg(FTS_REG_FOD_MODE_EN, FTS_VAL_FOD_ENABLE);
 	}
 
@@ -468,8 +468,8 @@ int fts_gesture_resume(struct fts_ts_data *ts_data)
 		FTS_ERROR("make IC exit gesture(resume) fail,state:%x", state);
 	else
 		FTS_INFO("resume from gesture successfully");
-	if ((ts_data->fod_mode != FTS_FOD_DISABLE) &&
-	    (ts_data->fod_mode != 3)) {
+	if ((ts_data->pdata->fod_status != FTS_FOD_DISABLE) &&
+	    (ts_data->pdata->fod_status != 3)) {
 		fts_write_reg(FTS_REG_FOD_MODE_EN, FTS_VAL_FOD_ENABLE);
 	}
 
@@ -522,7 +522,7 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
 	memset(&fts_gesture_data, 0, sizeof(struct fts_gesture_st));
 	ts_data->gesture_bmode = GESTURE_BM_REG;
 	ts_data->gesture_support = DISABLE;
-	ts_data->fod_mode = FTS_FOD_DISABLE;
+	ts_data->pdata->fod_status = FTS_FOD_DISABLE;
 
 	if (ts_data->bus_type == BUS_TYPE_SPI) {
 		if ((ts_data->ic_info.ids.type <= 0x25) ||

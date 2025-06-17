@@ -516,7 +516,7 @@ static ssize_t fts_pocket_mode_store(struct file *filp, const char __user *ubuf,
 	if (kstrtouint(buf, 0, &tmp))
 		return -EINVAL;
 	if ((!ts_data->gesture_support) &&
-	    (ts_data->fod_mode == FTS_FOD_DISABLE)) {
+	    (ts_data->pdata->fod_status == FTS_FOD_DISABLE)) {
 		FTS_INFO("In sleep mode,not operation pocket mode!");
 		return count;
 	}
@@ -719,7 +719,7 @@ static int fts_fod_proc_show(struct seq_file *s, void *unused)
 	mutex_lock(&ts_data->input_dev->mutex);
 	fts_read_reg(FTS_REG_FOD_MODE_EN, &val);
 
-	seq_printf(s, "Fod Mode:%d\n", ts_data->fod_mode);
+	seq_printf(s, "Fod Mode:%d\n", ts_data->pdata->fod_status);
 	seq_printf(s, "Reg(0xCF)=%d\n", val);
 	mutex_unlock(&ts_data->input_dev->mutex);
 
@@ -1767,7 +1767,7 @@ static ssize_t fts_fod_show(struct device *dev, struct device_attribute *attr,
 	mutex_lock(&ts_data->input_dev->mutex);
 	fts_read_reg(FTS_REG_FOD_MODE_EN, &val);
 	count = snprintf(buf, PAGE_SIZE, "FOD Mode:%s\n",
-			 ts_data->fod_mode ? "On" : "Off");
+			 ts_data->pdata->fod_status ? "On" : "Off");
 	count += snprintf(buf + count, PAGE_SIZE, "Reg(0xCF)=%d\n", val);
 	mutex_unlock(&ts_data->input_dev->mutex);
 

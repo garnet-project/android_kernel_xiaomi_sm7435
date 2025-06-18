@@ -290,7 +290,7 @@ struct fts_ts_data {
 	int ta_flag;
 	u32 ta_size;
 	u8 *ta_buf;
-
+	u8 gesture_status;
 	u8 *bus_tx_buf;
 	u8 *bus_rx_buf;
 	int bus_type;
@@ -310,6 +310,12 @@ struct fts_ts_data {
 	void *notifier_cookie;
 	struct mutex cmd_update_mutex;
 
+};
+
+enum GESTURE_MODE_TYPE {
+    GESTURE_DOUBLETAP = 0,
+    GESTURE_SINGLETAP = 1,
+    GESTURE_FOD  = 2,
 };
 
 enum _FTS_BUS_TYPE {

@@ -580,6 +580,7 @@ void fts_fod_enable(int enable)
 		fts_fod_set_reg(DISABLE);
 	} else if (enable == FTS_FOD_UNLOCK) {
 		FTS_INFO("Fod unlock\n");
+		update_fod_press_status(0);
 	} else if (enable == 3) {
 		FTS_INFO("disable fod but not power off,fod_mode = %d\n",
 			 ts_data->pdata->fod_status);
@@ -686,13 +687,10 @@ void fts_fod_report_key(struct fts_ts_data *ts_data)
 {
 	if ((ts_data->fod_fp_down) && (!ts_data->fp_down_report)) {
 		ts_data->fp_down_report = 1;
-		input_report_key(ts_data->input_dev, KEY_GESTURE_FOD, 1);
-		input_sync(ts_data->input_dev);
 		FTS_DEBUG("KEY_GESTURE_FOD, 1\n");
 	} else if ((!ts_data->fod_fp_down) && (ts_data->fp_down_report)) {
 		ts_data->fp_down_report = 0;
-		input_report_key(ts_data->input_dev, KEY_GESTURE_FOD, 0);
-		input_sync(ts_data->input_dev);
+		update_fod_press_status(0);
 		FTS_DEBUG("KEY_GESTURE_FOD, 0\n");
 		if (ts_data->pdata->fod_status == FTS_FOD_UNLOCK) {
 			fts_fod_set_reg(DISABLE);
@@ -1352,9 +1350,6 @@ static int fts_read_parse_touchdata(struct fts_ts_data *ts_data, u8 *touch_buf)
 			if (fts_fod_readdata(ts_data) ==
 			    FTS_RETVAL_IGNORE_TOUCHES) {
 				fts_fod_report_key(ts_data);
-				if (ts_data->suspended) {
-					return TOUCH_IGNORE;
-				}
 			}
 		}
 	}
@@ -2522,6 +2517,17 @@ static int fts_notifier_callback_init(struct fts_ts_data *ts_data)
 	return ret;
 }
 
+static void fts_update_gesture_state(struct fts_ts_data *ts_data, int bit, bool enable)
+{
+	mutex_lock(&ts_data->input_dev->mutex);
+	if (enable)
+		ts_data->gesture_status |= 1 << bit;
+	else
+		ts_data->gesture_status &= ~(1 << bit);
+	FTS_INFO("gesture state:0x%02X", ts_data->gesture_status);
+	mutex_unlock(&ts_data->input_dev->mutex);
+}
+
 static int fts_get_mode_value(int mode, int value_type)
 {
 	int value = -1;
@@ -2546,7 +2552,22 @@ static int fts_set_cur_value(int mode, int value)
 		FTS_ERROR("mode is error:%d", mode);
 		return -EINVAL;
 	}
-
+	if (mode == Touch_Doubletap_Mode && value >= 0) {
+		fts_update_gesture_state(fts_data, GESTURE_DOUBLETAP, value != 0 ? true : false);
+		return 0;
+	}
+	if (mode == Touch_Singletap_Gesture && value >= 0) {
+		fts_update_gesture_state(fts_data, GESTURE_SINGLETAP, value != 0 ? true : false);
+		return 0;
+	}
+	if (mode == Touch_Fod_Longpress_Gesture && value >= 0) {
+		fts_update_gesture_state(fts_data, GESTURE_FOD, value != 0 ? true : false);
+		return 0;
+	}
+	if (mode == THP_FOD_DOWNUP_CTL && value >= 0) {
+		update_fod_press_status(value != 0);
+		return 0;
+	}
 	xiaomi_touch_interfaces.touch_mode[mode][SET_CUR_VALUE] = value;
 	if (xiaomi_touch_interfaces.touch_mode[mode][SET_CUR_VALUE] >
 	    xiaomi_touch_interfaces.touch_mode[mode][GET_MAX_VALUE]) {
